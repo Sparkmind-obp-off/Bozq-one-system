@@ -281,6 +281,19 @@ Do not build yet:
 - marketplace;
 - mandatory booking-first UX.
 
+## Phase 2 implementation detail (2026-09-27)
+
+Migration `0002_core_operations.sql` extends the foundation without deleting existing rows:
+
+- `visit.service_id` optionally points to configured `service`; `visit.booking_person_id` identifies the booked person (unique when present). Walk-ins have `booking_id`/`booking_person_id` null.
+- `booking_person` holds one row per person, with optional explicit `customer_id`, `service_id`, `capster_id` and a nullable `projected_unit_value` snapshot. Only the first person inherits the booking's primary customer ID; no identity is guessed for other people.
+- The booking's `projected_value` is the sum of snapshots only when all listed people have configured prices. If any price is missing, the total is null and the daily summary marks the projection incomplete. Changes to service/price do not rewrite booking snapshots.
+- `price_rule` is versioned: replacing a price closes the active rule and creates a new one in the same D1 batch, with an audit event. This reference is **not** Kasir Pro payment truth.
+- Customer, walk-in, and booking create requests use caller-generated UUID + canonical request hash for same-payload retry; a reused ID with different payload is rejected. Offline queueing is not yet implemented.
+- A booking starts `confirmed`, creates one visit per person on transition to `arrived`, then advances through `in_service` and `completed`, or terminates as `cancelled`/`no_show`. Walk-in begins `arrived` without booking. Completion updates observed customer visit dates; it never generates actual revenue.
+- `GET /api/today` aggregates operational statuses by business-local date (`Asia/Jakarta`). Projected revenue includes only active confirmed/arrived/in-service bookings; actual remains null until authoritative Kasir Pro snapshots exist.
+- Owner bootstrap without an environment secret is restricted to local HTTP loopback and first-owner-only; public/production setup remains secret-gated. No user-supplied token is needed for local Phase 2 development.
+
 ## 13. Operating principle
 
 **Build the smallest reliable layer that turns existing transaction history into customer certainty and repeat-business action.**

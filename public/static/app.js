@@ -1,159 +1,310 @@
 const root = document.querySelector('#app')
 let currentUser = null
+let screen = 'today'
+let bookingDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+const labels = { confirmed: 'Terkonfirmasi', arrived: 'Tiba', in_service: 'Dilayani', completed: 'Selesai', cancelled: 'Batal', no_show: 'Tidak hadir' }
+const rupiah = amount => amount == null ? 'Belum tersedia' : new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount)
+const node = (tag, className, text) => { const element = document.createElement(tag); if (className) element.className = className; if (text != null) element.textContent = text; return element }
+const button = (title, action, secondary = false) => { const element = node('button', secondary ? 'secondary' : '', title); element.type = 'button'; element.onclick = action; return element }
+const id = () => crypto.randomUUID()
 
 async function request(path, options = {}) {
   let response
-  try {
-    response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options })
-  } catch {
-    throw new Error('Tidak terhubung. Pekerjaan fisik tetap dapat berjalan; perubahan belum tersimpan.')
+  try { response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options }) }
+  catch { throw new Error('Tidak terhubung. Pekerjaan fisik tetap berjalan; perubahan BELUM tersimpan. Coba kembali saat tersambung.') }
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'Permintaan gagal. Perubahan belum tersimpan.')
+  return data
+}
+const write = (path, method, data) => request(path, { method, body: JSON.stringify(data) })
+const clear = () => { root.replaceChildren(); const feedback = node('p', 'feedback'); feedback.id = 'feedback'; feedback.setAttribute('role', 'status'); root.append(feedback) }
+const message = (text, state = 'error') => { const element = document.querySelector('#feedback'); if (element) { element.textContent = text; element.className = `feedback ${state}` } }
+const heading = (title, subtitle) => { const section = node('section', 'welcome'); section.append(node('h1', '', title), node('p', '', subtitle)); root.append(section); return section }
+const panel = title => { const section = node('section', 'panel'); section.append(node('h2', '', title)); root.append(section); return section }
+const form = (html, onSubmit, label = 'Simpan') => {
+  const element = document.createElement('form'); element.innerHTML = html
+  const submit = node('button', '', label); submit.type = 'submit'; element.append(submit)
+  element.onsubmit = async event => {
+    event.preventDefault(); submit.disabled = true; message('Menyimpan...', 'pending')
+    try { await onSubmit(new FormData(element)); message('Tersimpan di server.', 'success') }
+    catch (error) { message(error.message) }
+    finally { submit.disabled = false }
   }
-  const body = await response.json()
-  if (!response.ok) throw new Error(body.error || 'Permintaan gagal.')
-  return body
+  return element
 }
-
-function message(text, type = 'error') {
-  const node = document.querySelector('#feedback')
-  if (node) { node.textContent = text; node.className = `feedback ${type}` }
+const statusTag = status => node('span', `status status-${status}`, labels[status] || status)
+const select = (name, entries, empty = 'Tidak ditentukan') => {
+  const element = document.createElement('select'); element.name = name
+  element.append(new Option(empty, ''))
+  entries.forEach(entry => element.append(new Option(entry.name || entry.display_name || entry.id, entry.id)))
+  return element
 }
-
-function form(title, fields, action, button) {
-  root.replaceChildren()
-  const section = document.createElement('section')
-  section.className = 'panel auth-panel'
-  const heading = document.createElement('h1')
-  heading.textContent = title
-  const formNode = document.createElement('form')
-  formNode.innerHTML = fields
-  const submit = document.createElement('button')
-  submit.type = 'submit'
-  submit.textContent = button
-  formNode.append(submit)
-  const feedback = document.createElement('p')
-  feedback.id = 'feedback'
-  feedback.setAttribute('role', 'status')
-  formNode.addEventListener('submit', async event => {
-    event.preventDefault()
-    submit.disabled = true
-    message('Menyimpan...', 'pending')
-    try { await action(new FormData(formNode)) } catch (error) { message(error.message) } finally { submit.disabled = false }
-  })
-  section.append(heading, formNode, feedback)
-  root.append(section)
-}
+const field = (title, control) => { const label = node('label', '', title); label.append(control); return label }
+const addSelect = (formNode, title, name, entries, empty) => { const element = select(name, entries, empty); formNode.insertBefore(field(title, element), formNode.lastElementChild); return element }
+const navButton = (text, key) => button(text, () => show(key), screen !== key)
 
 async function start() {
   try {
-    const status = await request('/api/status')
-    if (!status.ready) return showSetup()
-    if (status.authenticated) {
-      const { user } = await request('/api/me')
-      currentUser = user
-      return showHome()
-    }
-    showLogin()
-  } catch (error) {
-    root.textContent = error.message
-  }
+    const state = await request('/api/status')
+    if (!state.ready) return showSetup()
+    if (!state.authenticated) return showLogin()
+    const result = await request('/api/me'); currentUser = result.user; show('today')
+  } catch (error) { root.textContent = error.message }
 }
-
 function showSetup() {
-  form('Siapkan akun pemilik', '<p>Hanya sekali. Siapkan BOOTSTRAP_TOKEN di secret Cloudflare atau .dev.vars lokal sebelum melanjutkan.</p><label>Token inisialisasi<input name="token" type="password" required autocomplete="off"></label><label>Nama<input name="name" required minlength="2" maxlength="80"></label><label>Username<input name="username" required minlength="3" maxlength="40" autocomplete="username"></label><label>Sandi (minimal 12 karakter)<input name="password" type="password" required minlength="12" autocomplete="new-password"></label>', async data => {
-    const body = Object.fromEntries(data)
-    const token = body.token
-    delete body.token
-    await request('/api/bootstrap', { method: 'POST', headers: { 'X-Bootstrap-Token': token }, body: JSON.stringify(body) })
-    await start()
-  }, 'Buat pemilik')
+  clear(); heading('Siapkan Bosku', 'Pembuatan pemilik pertama hanya dari localhost. Tidak memerlukan token manual untuk pengembangan lokal.')
+  if (!['localhost', '127.0.0.1'].includes(location.hostname)) { panel('Setup belum tersedia dari alamat ini').append(node('p', '', 'Buka aplikasi melalui localhost pada mesin pengembangan untuk membuat akun pertama. Akses publik tidak dapat menginisialisasi aplikasi.')); return }
+  panel('Akun pemilik').append(form('<label>Nama<input name="name" required minlength="2"></label><label>Username<input name="username" required minlength="3"></label><label>Sandi pribadi (minimal 12 karakter)<input name="password" type="password" required minlength="12" autocomplete="new-password"></label>', async data => { await write('/api/bootstrap', 'POST', Object.fromEntries(data)); await start() }, 'Buat akun pemilik'))
 }
-
 function showLogin() {
-  form('Masuk ke Bosku', '<p>Gunakan akun yang dibuat pemilik. Data transaksi tetap dikelola di Kasir Pro.</p><label>Username<input name="username" required autocomplete="username"></label><label>Sandi<input name="password" type="password" required autocomplete="current-password"></label>', async data => {
-    await request('/api/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(data)) })
-    await start()
-  }, 'Masuk')
+  clear(); heading('Masuk ke Bosku', 'Layanan operasional · Kasir Pro tetap sumber transaksi.')
+  panel('Akun tim').append(form('<label>Username<input name="username" required autocomplete="username"></label><label>Sandi<input name="password" type="password" required autocomplete="current-password"></label>', async data => { await write('/api/login', 'POST', Object.fromEntries(data)); await start() }, 'Masuk'))
+}
+function show(key) {
+  screen = key; clear()
+  const nav = node('nav', 'app-nav'); nav.setAttribute('aria-label', 'Menu utama')
+  nav.append(navButton('Hari ini', 'today'), navButton('Pelanggan', 'customers'), navButton('Booking', 'bookings'))
+  if (currentUser.role === 'owner') nav.append(navButton('Pengaturan', 'settings'))
+  nav.append(button('Keluar', async () => { try { await write('/api/logout', 'POST', {}); currentUser = null; showLogin() } catch (e) { message(e.message) } }, true))
+  root.append(nav)
+  const views = { today: showToday, customers: showCustomers, bookings: showBookings, settings: showSettings }
+  return Promise.resolve(views[key]?.()).catch(error => message(error.message))
 }
 
-function card(title, description, enabled = false) {
-  const article = document.createElement('article')
-  article.className = enabled ? 'module available' : 'module'
-  const heading = document.createElement('h3')
-  heading.textContent = title
-  const p = document.createElement('p')
-  p.textContent = description
-  article.append(heading, p)
-  return article
+async function pickers() {
+  const [capsters, services, customers] = await Promise.all([request('/api/capsters'), request('/api/services'), request('/api/customers')])
+  return { capsters: capsters.capsters, services: services.services, customers: customers.customers }
+}
+function customerPicker(formNode, customers) {
+  const wrapper = node('section', 'customer-picker')
+  const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Cari nama / WhatsApp'; search.setAttribute('aria-label', 'Cari pelanggan')
+  const choice = select('customer_id', customers, 'Anonim / tanpa pelanggan')
+  let timer
+  search.oninput = () => { clearTimeout(timer); timer = setTimeout(async () => {
+    try { const result = await request('/api/customers?q=' + encodeURIComponent(search.value)); choice.replaceChildren(new Option('Anonim / tanpa pelanggan', '')); result.customers.forEach(entry => choice.append(new Option(`${entry.name || 'Tanpa nama'} ${entry.whatsapp || ''}`, entry.id))) }
+    catch (e) { message(e.message) }
+  }, 250) }
+  wrapper.append(field('Temukan pelanggan (opsional)', search), field('Pilih pelanggan', choice))
+  formNode.insertBefore(wrapper, formNode.lastElementChild)
+  return choice
+}
+function walkInForm(catalog, selectedCustomer = '') {
+  const section = panel('Walk-in cepat')
+  section.append(node('p', '', 'Tanpa booking dan tanpa data pelanggan pun bisa. Catat tiba dulu, transaksi tetap di Kasir Pro.'))
+  const formNode = form('<label>Catatan layanan (opsional)<input name="service_summary" maxlength="120" placeholder="Jika belum ada di katalog"></label>', async data => {
+    const payload = Object.fromEntries(data)
+    payload.id = formNode.dataset.requestId || (formNode.dataset.requestId = id())
+    try { await write('/api/visits', 'POST', payload); formNode.dataset.requestId = ''; message('Walk-in tercatat di server.', 'success'); await renderTodayList() }
+    catch (e) { throw e }
+  }, 'Catat walk-in tiba')
+  const customer = customerPicker(formNode, catalog.customers); customer.value = selectedCustomer
+  addSelect(formNode, 'Layanan', 'service_id', catalog.services)
+  addSelect(formNode, 'Capster', 'capster_id', catalog.capsters)
+  section.append(formNode)
+}
+async function showToday() {
+  heading('Hari ini', 'Walk-in lebih dulu. Status layanan bukan bukti pembayaran.')
+  const metrics = panel('Kondisi hari ini'); metrics.id = 'today-metrics'
+  const catalog = await pickers(); walkInForm(catalog)
+  const list = panel('Aktivitas'); list.id = 'today-list'
+  await renderTodayList()
+}
+async function renderTodayList() {
+  const [summary, visits, bookings] = await Promise.all([request('/api/today'), request('/api/visits'), request('/api/bookings')])
+  const metrics = document.querySelector('#today-metrics'); const list = document.querySelector('#today-list'); if (!metrics || !list) return
+  metrics.replaceChildren(node('h2', '', 'Kondisi hari ini'))
+  const pills = node('div', 'metrics')
+  for (const [key, title] of Object.entries({ confirmed: 'Terkonfirmasi', walk_in: 'Walk-in', arrived: 'Tiba', in_service: 'Dilayani', completed: 'Selesai', cancelled: 'Batal', no_show: 'Tidak hadir' })) {
+    const metric = node('article', 'metric'); metric.append(node('strong', '', summary.counts[key]), node('small', '', title)); pills.append(metric)
+  }
+  metrics.append(pills)
+  const moneyPanel = node('div', 'money-grid')
+  const projection = node('article', 'money-card'); projection.append(node('small', '', 'PROYEKSI BOOKING AKTIF'), node('strong', '', rupiah(summary.projected_value)), node('small', '', summary.projection_incomplete ? 'Sebagian harga belum diatur; jumlah tidak lengkap.' : 'Berdasarkan harga layanan yang dikonfigurasi.'))
+  const actual = node('article', 'money-card'); actual.append(node('small', '', 'AKTUAL KASIR PRO'), node('strong', '', rupiah(summary.actual_value)), node('small', '', 'Hanya dari transaksi otoritatif yang diimpor. Selesai layanan ≠ dibayar.'))
+  moneyPanel.append(projection, actual); metrics.append(moneyPanel)
+  list.replaceChildren(node('h2', '', 'Aktivitas'))
+  if (!visits.visits.length && !bookings.bookings.length) list.append(node('p', '', 'Belum ada aktivitas tercatat.'))
+  bookings.bookings.forEach(entry => list.append(bookingCard(entry, true)))
+  visits.visits.filter(entry => entry.source === 'walk_in').forEach(entry => list.append(visitCard(entry)))
+}
+function visitCard(visit) {
+  const card = node('article', 'activity-card')
+  const top = node('div', 'activity-top'); top.append(node('strong', '', visit.customer_name || 'Walk-in anonim'), statusTag(visit.status))
+  card.append(top, node('p', '', `${visit.service_name || visit.service_summary || 'Layanan belum dipilih'} · ${visit.capster_name || 'Capster belum dipilih'} · ${visit.occurred_at.slice(11, 16)}`))
+  const actions = node('div', 'actions')
+  const next = { arrived: 'in_service', in_service: 'completed' }[visit.status]
+  if (next) actions.append(button(next === 'completed' ? 'Selesaikan layanan' : 'Mulai layanan', async () => {
+    try { await write(`/api/visits/${visit.id}/status`, 'PATCH', { status: next }); message('Status kunjungan tersimpan.', 'success'); await renderTodayList() } catch (e) { message(e.message) }
+  }))
+  if (visit.status === 'arrived') actions.append(button('Batalkan', async () => { try { await write(`/api/visits/${visit.id}/status`, 'PATCH', { status: 'cancelled' }); message('Kunjungan dibatalkan.', 'success'); await renderTodayList() } catch (e) { message(e.message) } }, true))
+  card.append(actions); return card
 }
 
-async function showHome() {
-  root.replaceChildren()
-  const head = document.createElement('section')
-  head.className = 'welcome'
-  const title = document.createElement('h1')
-  title.textContent = `Halo, ${currentUser.display_name}`
-  const sub = document.createElement('p')
-  sub.textContent = currentUser.role === 'owner' ? 'Area pemilik · Fondasi sistem sudah aktif' : 'Area operasional · Modul layanan segera hadir'
-  const logout = document.createElement('button')
-  logout.className = 'secondary'
-  logout.textContent = 'Keluar'
-  logout.onclick = async () => { try { await request('/api/logout', { method: 'POST', body: '{}' }); currentUser = null; showLogin() } catch (e) { message(e.message) } }
-  head.append(title, sub, logout)
-  const section = document.createElement('section')
-  section.className = 'modules'
-  const label = document.createElement('h2')
-  label.textContent = 'Ruang kerja'
-  const grid = document.createElement('div')
-  grid.className = 'module-grid'
-  grid.append(card('Hari ini', 'Walk-in, kunjungan, dan status layanan — sprint berikutnya.'), card('Pelanggan', 'Profil dan riwayat kunjungan — sprint berikutnya.'), card('Booking', 'Opsional, bukan syarat melayani pelanggan.'), card('Retensi', 'Berdasarkan kunjungan teramati, bukan ramalan.'), card('Transaksi & Sinkronisasi', 'Impor aman; Kasir Pro tetap sumber transaksi.'))
-  if (currentUser.role === 'owner') grid.append(card('Pengaturan & Audit', 'Kelola akun operator dan jejak perubahan.', true))
-  section.append(label, grid)
-  root.append(head, section)
-  const feedback = document.createElement('p')
-  feedback.id = 'feedback'
-  feedback.setAttribute('role', 'status')
-  root.append(feedback)
-  if (currentUser.role === 'owner') await showOwner()
+function bookingCard(booking, fromToday = false) {
+  const card = node('article', 'activity-card')
+  const top = node('div', 'activity-top'); top.append(node('strong', '', booking.customer_name || 'Booking tanpa identitas'), statusTag(booking.status))
+  card.append(top, node('p', '', `${booking.scheduled_start.replace('T', ' ')} · ${booking.party_size} orang · ${booking.capster_name || 'Capster bebas'}`))
+  card.append(node('p', 'projection-note', `Proyeksi: ${rupiah(booking.projected_value)} · Aktual: belum tersedia`))
+  const actions = node('div', 'actions')
+  const next = { confirmed: 'arrived', arrived: 'in_service', in_service: 'completed' }[booking.status]
+  if (next) actions.append(button({ arrived: 'Tandai tiba', in_service: 'Mulai layanan', completed: 'Selesaikan layanan' }[next], async () => {
+    try { await write(`/api/bookings/${booking.id}/status`, 'PATCH', { status: next }); message('Status booking tersimpan.', 'success'); if (fromToday) await renderTodayList(); else await showBookingList() }
+    catch (e) { message(e.message) }
+  }))
+  if (booking.status === 'confirmed') actions.append(button('Tidak hadir', async () => { try { await write(`/api/bookings/${booking.id}/status`, 'PATCH', { status: 'no_show' }); message('Dicatat tidak hadir.', 'success'); if (fromToday) await renderTodayList(); else await showBookingList() } catch (e) { message(e.message) } }, true))
+  if (['confirmed', 'arrived'].includes(booking.status)) actions.append(button('Batalkan', async () => { try { await write(`/api/bookings/${booking.id}/status`, 'PATCH', { status: 'cancelled' }); message('Booking dibatalkan.', 'success'); if (fromToday) await renderTodayList(); else await showBookingList() } catch (e) { message(e.message) } }, true))
+  actions.append(button('Detail orang', async () => { try {
+    const data = await request(`/api/bookings/${booking.id}`)
+    const details = node('ul', 'people-list')
+    data.people.forEach((p, index) => details.append(node('li', '', `${index + 1}. ${p.customer_name || 'Anonim'} · ${p.service_name || 'Layanan belum dipilih'} · ${p.capster_name || 'Capster belum dipilih'} · ${p.visit_status ? (labels[p.visit_status] || p.visit_status) : 'Belum tiba'}`)))
+    card.querySelector('.people-list')?.remove(); card.append(details)
+  } catch (e) { message(e.message) } }, true))
+  card.append(actions); return card
 }
 
-async function showOwner() {
-  const panel = document.createElement('section')
-  panel.className = 'panel owner-panel'
-  const heading = document.createElement('h2')
-  heading.textContent = 'Akses tim'
-  const description = document.createElement('p')
-  description.textContent = 'Buat akun terpisah; jangan berbagi sandi. Setiap pembuatan akun tercatat di audit.'
-  const formNode = document.createElement('form')
-  formNode.innerHTML = '<label>Nama<input name="name" required minlength="2" maxlength="80"></label><label>Username<input name="username" required minlength="3" maxlength="40"></label><label>Peran<select name="role"><option value="capster">Capster</option><option value="operator">Operator</option></select></label><label>Sandi awal (minimal 12 karakter)<input name="password" type="password" required minlength="12"></label><button type="submit">Tambah akun</button>'
-  formNode.addEventListener('submit', async event => {
-    event.preventDefault()
-    try {
-      await request('/api/owner/users', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(formNode))) })
-      formNode.reset()
-      message('Akun dibuat dan dicatat dalam audit.', 'success')
-      await loadAudit()
-    } catch (e) { message(e.message) }
-  })
-  const auditTitle = document.createElement('h3')
-  auditTitle.textContent = 'Aktivitas penting terakhir'
-  const list = document.createElement('ul')
-  list.id = 'audit-list'
-  panel.append(heading, description, formNode, auditTitle, list)
-  root.append(panel)
-  await loadAudit()
-}
-
-async function loadAudit() {
-  try {
-    const { events } = await request('/api/owner/audit')
-    const list = document.querySelector('#audit-list')
-    if (!list) return
-    list.replaceChildren(...events.map(event => {
-      const item = document.createElement('li')
-      item.textContent = `${event.occurred_at} · ${event.action} · ${event.entity_type} · ${event.entity_id}`
-      return item
+async function showBookings() {
+  heading('Booking', 'Opsional. Satu booking dapat berisi beberapa orang, masing-masing dapat ditelusuri.')
+  const catalog = await pickers()
+  const section = panel('Booking baru')
+  const bookingForm = form('<label>Jadwal<input name="scheduled_start" type="datetime-local" required></label><label>Catatan (opsional)<input name="notes" maxlength="300"></label>', async data => {
+    const payload = Object.fromEntries(data)
+    payload.id = bookingForm.dataset.requestId || (bookingForm.dataset.requestId = id())
+    payload.people = [...peopleList.querySelectorAll('.person-entry')].map((entry, index) => ({
+      customer_id: index === 0 ? payload.customer_id || null : entry.querySelector('[name="person_customer_id"]').value || null,
+      service_id: entry.querySelector('[name="person_service_id"]').value || null,
+      capster_id: entry.querySelector('[name="person_capster_id"]').value || null
     }))
-  } catch (e) { message(e.message) }
+    try { await write('/api/bookings', 'POST', payload); bookingForm.dataset.requestId = ''; bookingDate = payload.scheduled_start.slice(0, 10); await show('bookings'); message('Booking tersimpan di server.', 'success') }
+    catch (e) { throw e }
+  }, 'Konfirmasi booking')
+  customerPicker(bookingForm, catalog.customers)
+  addSelect(bookingForm, 'Capster preferensi', 'capster_id', catalog.capsters)
+  const peopleList = node('section', 'people-inputs')
+  peopleList.append(node('h3', '', 'Orang & layanan'))
+  function addPerson() {
+    if (peopleList.querySelectorAll('.person-entry').length >= 8) return
+    const entry = node('article', 'person-entry'); entry.append(node('strong', '', `Orang ${peopleList.querySelectorAll('.person-entry').length + 1}`))
+    entry.append(field('Layanan', select('person_service_id', catalog.services, 'Belum dipilih')))
+    entry.append(field('Capster (opsional)', select('person_capster_id', catalog.capsters, 'Mengikuti preferensi')))
+    if (peopleList.querySelectorAll('.person-entry').length) entry.append(field('Pelanggan orang ini (opsional)', select('person_customer_id', catalog.customers, 'Anonim')))
+    entry.append(button('Hapus orang', () => { if (peopleList.querySelectorAll('.person-entry').length > 1) entry.remove() }, true))
+    peopleList.append(entry)
+  }
+  addPerson()
+  bookingForm.insertBefore(peopleList, bookingForm.lastElementChild)
+  bookingForm.insertBefore(button('+ Tambah orang', addPerson, true), bookingForm.lastElementChild)
+  section.append(bookingForm)
+  const list = panel('Daftar booking'); list.id = 'booking-list'
+  const dateInput = document.createElement('input'); dateInput.id = 'booking-date'; dateInput.type = 'date'; dateInput.value = bookingDate; dateInput.setAttribute('aria-label', 'Tanggal booking'); dateInput.onchange = () => { bookingDate = dateInput.value; showBookingList().catch(e => message(e.message)) }
+  const filter = field('Tanggal booking', dateInput); list.append(filter)
+  await showBookingList()
+}
+async function showBookingList() {
+  const list = document.querySelector('#booking-list'); if (!list) return
+  const data = await request('/api/bookings?date=' + encodeURIComponent(bookingDate));
+  [...list.querySelectorAll('.activity-card')].forEach(card => card.remove())
+  list.querySelector('.empty-bookings')?.remove()
+  if (!data.bookings.length) list.append(node('p', 'empty-bookings', 'Belum ada booking pada tanggal ini. Walk-in tetap dapat dicatat di Hari ini.'))
+  data.bookings.forEach(entry => list.append(bookingCard(entry)))
 }
 
+async function showCustomers() {
+  heading('Pelanggan', 'Pilih secara eksplisit. Nama sama tidak pernah digabung otomatis.')
+  const create = panel('Tambah pelanggan')
+  create.append(form('<label>Nama (opsional bila ada WhatsApp)<input name="name" maxlength="80"></label><label>WhatsApp (opsional)<input name="whatsapp" inputmode="tel" placeholder="08..." maxlength="22"></label>', async data => {
+    const payload = Object.fromEntries(data)
+    const current = create.querySelector('form')
+    payload.id = current.dataset.requestId || (current.dataset.requestId = id())
+    try { await write('/api/customers', 'POST', payload); current.dataset.requestId = ''; message('Pelanggan tersimpan di server.', 'success'); await loadCustomers() }
+    catch (e) { throw e }
+  }, 'Simpan pelanggan'))
+  const section = panel('Cari pelanggan')
+  const search = document.createElement('input'); search.id = 'customer-search'; search.type = 'search'; search.placeholder = 'Nama atau WhatsApp'; search.setAttribute('aria-label', 'Cari pelanggan')
+  let timer; search.oninput = () => { clearTimeout(timer); timer = setTimeout(loadCustomers, 260) }
+  section.append(search)
+  const list = node('section', 'customer-list'); list.id = 'customer-list'; section.append(list)
+  await loadCustomers()
+}
+async function loadCustomers() {
+  const search = document.querySelector('#customer-search'); const list = document.querySelector('#customer-list'); if (!list) return
+  const data = await request('/api/customers?q=' + encodeURIComponent(search?.value || ''))
+  list.replaceChildren()
+  if (!data.customers.length) list.append(node('p', '', 'Tidak ada pelanggan ditemukan.'))
+  data.customers.forEach(customer => {
+    const row = node('article', 'activity-card'); row.append(node('strong', '', customer.name || customer.whatsapp || 'Tanpa nama'), node('p', '', `${customer.completed_visits} kunjungan selesai · ${customer.whatsapp || 'Tanpa WhatsApp'}`))
+    row.append(button('Lihat riwayat', () => showCustomerDetail(customer.id), true)); list.append(row)
+  })
+}
+async function showCustomerDetail(customerId) {
+  clear(); const { customer, visits, completed_visits } = await request(`/api/customers/${customerId}`)
+  const nav = button('← Kembali ke pelanggan', () => show('customers'), true); root.append(nav)
+  heading(customer.name || customer.whatsapp || 'Pelanggan', `${completed_visits} layanan selesai · ${customer.whatsapp || 'Tanpa WhatsApp'}`)
+  const panelNode = panel('Riwayat kunjungan'); panelNode.append(button('Catat walk-in untuk pelanggan ini', async () => { await show('today'); document.querySelector('.customer-picker select[name="customer_id"]').value = customerId }, false))
+  const editPanel = panel('Perbarui profil')
+  const editForm = form('<label>Nama<input name="name" maxlength="80"></label><label>WhatsApp<input name="whatsapp" inputmode="tel" maxlength="22"></label>', async data => {
+    await write(`/api/customers/${customerId}`, 'PATCH', Object.fromEntries(data)); message('Profil diperbarui di server.', 'success'); await showCustomerDetail(customerId)
+  }, 'Perbarui pelanggan')
+  editForm.elements.name.value = customer.name || ''; editForm.elements.whatsapp.value = customer.whatsapp || ''
+  editPanel.append(editForm)
+  if (!visits.length) panelNode.append(node('p', '', 'Belum ada riwayat kunjungan.'))
+  visits.forEach(visit => { const card = node('article', 'activity-card'); card.append(node('strong', '', visit.service || 'Layanan belum dipilih'), statusTag(visit.status), node('p', '', `${visit.occurred_at.replace('T', ' ')} · ${visit.capster || 'Capster belum dipilih'} · ${visit.source === 'walk_in' ? 'Walk-in' : 'Booking'}`)); panelNode.append(card) })
+}
+
+async function showSettings() {
+  if (currentUser.role !== 'owner') return show('today')
+  heading('Pengaturan', 'Hanya pemilik dapat mengubah capster, layanan, dan harga proyeksi. Kasir Pro tidak terpengaruh.')
+  const capsterSection = panel('Capster')
+  capsterSection.append(form('<label>Nama capster<input name="name" required maxlength="80"></label>', async data => {
+    const payload = Object.fromEntries(data); const current = capsterSection.querySelector('form')
+    payload.id = current.dataset.requestId || (current.dataset.requestId = id())
+    await write('/api/owner/capsters', 'POST', payload); current.dataset.requestId = ''; current.reset(); message('Capster dibuat.', 'success'); await loadCatalog()
+  }, 'Tambah capster'))
+  const capsterList = node('section', 'catalog-list'); capsterList.id = 'capster-list'; capsterSection.append(capsterList)
+  const serviceSection = panel('Layanan dan harga referensi')
+  serviceSection.append(node('p', '', 'Harga hanya untuk proyeksi booking. Perubahan harga tidak mengubah transaksi Kasir Pro atau nilai booking lama.'))
+  serviceSection.append(form('<label>Nama layanan<input name="name" required maxlength="80"></label><label>Harga referensi (opsional, rupiah)<input name="price" type="number" inputmode="numeric" min="0" max="100000000"></label>', async data => {
+    const payload = Object.fromEntries(data); const current = serviceSection.querySelector('form')
+    payload.price = payload.price === '' ? null : Number(payload.price)
+    payload.id = current.dataset.requestId || (current.dataset.requestId = id())
+    await write('/api/owner/services', 'POST', payload); current.dataset.requestId = ''; current.reset(); message('Layanan dibuat.', 'success'); await loadCatalog()
+  }, 'Tambah layanan'))
+  const serviceList = node('section', 'catalog-list'); serviceList.id = 'service-list'; serviceSection.append(serviceList)
+  const users = panel('Akses tim')
+  users.append(node('p', '', 'Setiap pengguna memiliki akun terpisah. Pembuatan akun tercatat dalam audit.'))
+  users.append(form('<label>Nama<input name="name" required minlength="2" maxlength="80"></label><label>Username<input name="username" required minlength="3" maxlength="40"></label><label>Peran<select name="role"><option value="capster">Capster</option><option value="operator">Operator</option></select></label><label>Sandi awal (minimal 12 karakter)<input name="password" type="password" required minlength="12"></label>', async data => {
+    await write('/api/owner/users', 'POST', Object.fromEntries(data)); message('Akun tim dibuat.', 'success'); await loadAudit()
+  }, 'Tambah akun tim'))
+  const auditSection = panel('Audit terbaru'); const auditList = node('ul', 'audit-list'); auditList.id = 'audit-list'; auditSection.append(auditList)
+  await Promise.all([loadCatalog(), loadAudit()])
+}
+async function loadCatalog() {
+  const [capsters, services] = await Promise.all([request('/api/capsters?all=1'), request('/api/services?all=1')])
+  const capsterList = document.querySelector('#capster-list'); const serviceList = document.querySelector('#service-list')
+  if (!capsterList || !serviceList) return
+  capsterList.replaceChildren(); serviceList.replaceChildren()
+  capsters.capsters.forEach(item => {
+    const row = node('article', 'catalog-row'); row.append(node('strong', '', `${item.display_name} · ${item.status === 'active' ? 'Aktif' : 'Nonaktif'}`))
+    row.append(button('Ubah nama', async () => { const name = prompt('Nama capster', item.display_name); if (!name || name === item.display_name) return; try { await write(`/api/owner/capsters/${item.id}`, 'PATCH', { name }); message('Capster diperbarui.', 'success'); await loadCatalog() } catch (e) { message(e.message) } }, true))
+    row.append(button(item.status === 'active' ? 'Nonaktifkan' : 'Aktifkan', async () => { try { await write(`/api/owner/capsters/${item.id}`, 'PATCH', { status: item.status === 'active' ? 'inactive' : 'active' }); message('Status capster diperbarui.', 'success'); await loadCatalog() } catch (e) { message(e.message) } }, true))
+    capsterList.append(row)
+  })
+  services.services.forEach(item => {
+    const row = node('article', 'catalog-row'); row.append(node('strong', '', `${item.name} · ${item.active ? 'Aktif' : 'Nonaktif'} · ${rupiah(item.price)}`))
+    row.append(button('Ubah', async () => {
+      const name = prompt('Nama layanan', item.name); if (name === null) return
+      const priceInput = prompt('Harga proyeksi (kosong = belum tersedia)', item.price == null ? '' : String(item.price)); if (priceInput === null) return
+      try { await write(`/api/owner/services/${item.id}`, 'PATCH', { name, price: priceInput.trim() === '' ? null : Number(priceInput) }); message('Layanan dan harga diperbarui.', 'success'); await loadCatalog() } catch (e) { message(e.message) }
+    }, true))
+    row.append(button(item.active ? 'Nonaktifkan' : 'Aktifkan', async () => { try { await write(`/api/owner/services/${item.id}`, 'PATCH', { active: item.active ? 0 : 1 }); message('Status layanan diperbarui.', 'success'); await loadCatalog() } catch (e) { message(e.message) } }, true))
+    serviceList.append(row)
+  })
+}
+async function loadAudit() {
+  const target = document.querySelector('#audit-list'); if (!target) return
+  const data = await request('/api/owner/audit')
+  target.replaceChildren(...data.events.map(event => node('li', '', `${event.occurred_at} · ${event.action} · ${event.entity_type} · ${event.entity_id}`)))
+}
+
+window.addEventListener('offline', () => message('Koneksi terputus. Perubahan baru tidak akan dianggap tersimpan; layanan fisik tetap berjalan.'))
+window.addEventListener('online', () => message('Koneksi kembali. Muat ulang data sebelum melanjutkan.', 'pending'))
 start()

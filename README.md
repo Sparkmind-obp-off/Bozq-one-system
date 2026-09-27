@@ -1,63 +1,64 @@
 # Bosku One System
 
-Lapisan operasional Bosku Cukur untuk pelanggan, kunjungan, retensi, kepastian harian, dan visibilitas pemilik. **Kasir Pro tetap sumber transaksi/POS.** Spesifikasi produk lengkap di `docs/01`–`docs/11`.
+Sistem operasional pelanggan, walk-in, booking opsional, dan kepastian harian untuk Bosku Cukur. **Kasir Pro tetap POS dan otoritas transaksi.** Lihat `docs/01`–`docs/11` untuk kontrak produk.
 
-## Status implementasi (Sesi 1 / Fase 1)
+## Status (Phase 2 / Sprint 3–4)
 
-- **Selesai:** aplikasi Hono + Cloudflare Pages, tampilan responsif dasar, migrasi D1 untuk domain inti, inisialisasi pemilik sekali pakai, login/logout dengan cookie HttpOnly, akun operator/capster dibuat pemilik, pembatasan owner di server, audit pembuatan akun, error handling, serta tes fondasi.
-- **Belum:** CRUD pelanggan/kunjungan dan walk-in, Today, booking, CSV/Excel impor, return engine, reminder, BI aktual, antrean offline, penerimaan skenario A–M, dan pilot. Kartu modul yang belum tersedia sengaja tidak dapat diklik.
-- **Status deploy:** belum dideploy ke produksi. Akun Cloudflare BYOK sudah terautentikasi, tetapi pembuatan D1 baru gagal karena kuota akun penuh. ID D1 di `wrangler.jsonc` adalah **placeholder lokal**, BUKAN database produksi. Jangan deploy sebelum mendapat D1 Bosku tersendiri, mengganti ID, menerapkan migrasi, dan mengatur secret. Jangan menghapus/menggunakan D1 milik proyek lain tanpa persetujuan.
+**Selesai dan diuji:** autentikasi/peran, pelanggan (buat/ubah/cari/detail/riwayat), WhatsApp dinormalisasi tanpa menggabungkan nama yang mirip, capster dan layanan (buat/ubah/nonaktif/aktif kembali oleh owner), aturan harga berversi, walk-in anonim/teridentifikasi, alur status kunjungan, booking 1–8 orang dengan jejak per orang, layar Today, audit, proyeksi booking terpisah dari aktual Kasir Pro, serta inisialisasi owner lokal tanpa token manual.
 
-## Cara menjalankan lokal
+**Belum:** jembatan impor CSV/Excel, data transaksi aktual, retensi/due/reminder, antrean offline tersimpan, BI pemilik penuh, skenario penerimaan MVP lintas fase, pilot. Jika jaringan putus, penulisan menampilkan kegagalan dan **tidak** dianggap tersimpan. Operasi cukur fisik tetap bisa berjalan.
 
-Persyaratan Node.js 22+ dan npm. Tidak ada kredensial default.
+**Deploy produksi belum dilakukan:** akun Cloudflare BYOK telah terautentikasi; database D1 Bosku belum dibuat. Upaya sebelumnya terhalang kuota, meski pemeriksaan terbaru menunjukkan kemungkinan slot kembali tersedia. `wrangler.jsonc` mengandung UUID D1 **placeholder hanya untuk lokal**, bukan database produksi. Jangan deploy dengan UUID tersebut; jangan gunakan atau hapus database proyek lain tanpa persetujuan.
+
+## Jalankan secara lokal — tanpa token atau secret manual
+
+Butuh Node.js 22+ dan npm; pemilik memilih username dan sandinya sendiri, **tidak ada sandi default**.
 
 ```sh
 npm install
-cp .dev.vars.example .dev.vars
-# Ubah BOOTSTRAP_TOKEN di .dev.vars menjadi token acak >= 32 karakter; jangan commit.
 npm run db:migrate:local
 npm run typecheck && npm test && npm run build
 pm2 start ecosystem.config.cjs
-# Buka http://localhost:3000 dan siapkan akun pemilik dengan token tadi.
+# Buka http://localhost:3000 dari mesin yang menjalankan aplikasi,
+# lalu buat akun pemilik pertama melalui UI.
 ```
 
-`npm run dev:sandbox` menjalankan Wrangler langsung untuk lingkungan non-PM2. `pm2 delete bosku-one-system` menghentikan preview. Database lokal di `.wrangler/` terpisah dari produksi. Jangan memakai password uji di lingkungan nyata.
+Tidak perlu `.dev.vars`, API key, atau token bootstrap untuk setup lokal. Inisialisasi tanpa token hanya diterima melalui HTTP loopback (`localhost`/`127.0.0.1`, bukan alamat proxy publik). Setelah ada owner, endpoint inisialisasi tertutup. `npm run dev:sandbox` menjalankan tanpa PM2 di luar sandbox; `pm2 delete bosku-one-system` menghentikan preview. Database lokal berada di `.wrangler/`, terpisah dari produksi. Jangan pakai data pribadi untuk tes di preview sandbox.
 
-## Entry point
+## Panduan singkat
+
+1. Pemilik membuat akun, masuk, membuka **Pengaturan** untuk menambah capster/layanan dan harga referensi (opsional), serta akun operator terpisah.
+2. **Hari ini → Walk-in cepat:** pilih pelanggan/layanan/capster jika diketahui; semuanya opsional. Lanjutkan Tiba → Dilayani → Selesai. Ini tidak membuat booking ataupun pembayaran.
+3. **Pelanggan:** simpan nama dan/atau WhatsApp, cari lalu lihat riwayat; pelanggan bernama sama tidak digabung otomatis.
+4. **Booking:** pilih tanggal/jam dan tambah orang/layanan. Terkonfirmasi → Tiba → Dilayani → Selesai, atau Batal/Tidak hadir. Setiap orang memiliki rekam kunjungan tersendiri ketika tiba.
+5. **Proyeksi** berdasarkan harga layanan yang diatur saat booking dibuat; tidak ada aktual sampai snapshot transaksi Kasir Pro diimpor pada fase selanjutnya. Harga yang hilang ditandai sebagai proyeksi tidak lengkap.
+
+## API aktif
+
+Semua `/api/*` nonpublik memakai cookie sesi HttpOnly, dan mutasi browser wajib JSON + `Origin` same-origin. Owner-only ditegakkan di server.
 
 | Jalur | Akses | Fungsi |
 |---|---|---|
-| `/` | publik | Halaman masuk/inisialisasi; modul mendatang ditandai jelas |
-| `GET /api/status` | publik | Status inisialisasi, tanpa detail pribadi |
-| `POST /api/bootstrap` | secret `X-Bootstrap-Token` | Buat pemilik pertama satu kali; body `name,username,password` |
-| `POST /api/login` | publik | Masuk; body `username,password` |
-| `POST /api/logout` | sesi | Hapus sesi |
-| `GET /api/me` | sesi | Profil/peran pengguna aktif |
-| `GET /api/owner/overview` | owner | Hitungan data dasar (bukan revenue) |
-| `GET /api/owner/audit` | owner | 50 catatan audit terakhir |
-| `POST /api/owner/users` | owner | Buat operator/capster; body `name,username,password,role` |
+| `/`, `GET /api/status` | publik | UI/status setup |
+| `POST /api/bootstrap` | loopback lokal / secret produksi | Buat owner pertama, satu kali |
+| `POST /api/login`, `POST /api/logout`, `GET /api/me` | sesuai sesi | Login/logout/profil |
+| `GET/POST /api/customers`, `GET/PATCH /api/customers/:id` | tim | Pencarian (q), buat, detail/riwayat, ubah |
+| `GET/POST /api/visits`, `PATCH /api/visits/:id/status` | tim | Walk-in dan status; GET menerima `date=YYYY-MM-DD` |
+| `GET/POST /api/bookings`, `GET /api/bookings/:id`, `PATCH /api/bookings/:id/status` | tim | Booking multi-orang; GET list menerima `date` |
+| `GET /api/today` | tim | Hitungan/proyeksi/aktual; menerima `date` |
+| `GET /api/capsters`, `GET /api/services` | tim | Katalog aktif; owner boleh `?all=1` |
+| `POST /api/owner/capsters`, `PATCH /api/owner/capsters/:id` | owner | Nama/status capster |
+| `POST /api/owner/services`, `PATCH /api/owner/services/:id` | owner | Nama/status layanan & harga referensi |
+| `GET /api/owner/overview`, `GET /api/owner/audit`, `POST /api/owner/users` | owner | Fondasi overview/audit/akun |
 
-Mutasi JSON selain bootstrap membutuhkan header `Origin` yang sama dengan situs. Sandi minimal 12 karakter; lima kegagalan login mengunci akun selama 15 menit. Token sesi disimpan sebagai hash SHA-256 di D1, kedaluwarsa dalam tujuh hari. Tidak ada token atau sandi dalam log aplikasi. `BOOTSTRAP_TOKEN` hanya untuk inisialisasi pertama dan harus disimpan sebagai secret di Cloudflare Pages saat produksi.
+Untuk `POST /api/customers`, `POST /api/visits`, dan `POST /api/bookings`, kirim `id` UUID buatan klien. Retry dengan ID dan isi sama tidak membuat duplikat; ID sama dengan isi berbeda menghasilkan 409. Booking `people` adalah array 1–8 objek `{customer_id?, service_id?, capster_id?}`; pelanggan utama berlaku hanya untuk orang pertama, tidak otomatis untuk semua. Status terminal tidak dapat dibalik. Waktu booking memakai waktu lokal `Asia/Jakarta` berformat `YYYY-MM-DDTHH:mm`.
 
-## Data dan arsitektur
+## Model data
 
-- Hono Worker di Cloudflare Pages; CSS/JS statis di `public/static`.
-- D1: `business`, `branch`, `app_user`, `session`, `capster`, `customer`, `customer_consent`, `service`, `price_rule`, `visit`, `booking`, `transaction_snapshot`, `sync_run`, `reminder`, `reminder_event`, `audit_event`.
-- Model inti saat ini masih skema awal, bukan bukti semua alur sudah berfungsi. `transaction_snapshot` bersifat snapshot impor, bukan ledger POS. Tidak ada impor/riwayat demo yang dibuat di produksi.
-- Username unik; satu cabang default dibuat saat bootstrap tetapi skema memiliki `business_id`/`branch_id` untuk ekspansi di kemudian hari.
+D1: `business`, `branch`, `app_user`, `session`, `customer`, `capster`, `service`, `price_rule`, `visit`, `booking`, `booking_person`, `customer_consent`, `transaction_snapshot`, `sync_run`, `reminder`, `reminder_event`, `audit_event`. Migrasi `0001_foundation.sql` dan `0002_core_operations.sql` tidak menghapus data lama. `visit.service_id` opsional, dan setiap `booking_person` bisa dikaitkan ke satu visit saat tiba. `booking.projected_value` adalah snapshot referensi harga ketika dibuat; `transaction_snapshot` kelak menampung nilai aktual impor otoritatif. Keduanya tidak saling mengubah. Riwayat harga di `price_rule` mempertahankan tarif lama.
 
-## Deploy BYOK (tertahan oleh kapasitas D1)
+## Deploy BYOK (belum dilakukan)
 
-1. Sediakan **slot D1 baru** di akun Cloudflare pengguna (upgrade kapasitas atau pilih sumber daya yang aman untuk dihapus secara eksplisit). Jangan memakai database proyek lain.
-2. `npx wrangler d1 create bosku-one-system-db`; ganti placeholder `database_id` di `wrangler.jsonc` dengan UUID yang diberikan.
-3. `npx wrangler d1 migrations apply bosku-one-system-db --remote`.
-4. `npx wrangler pages project create bosku-one-system --production-branch main --compatibility-date 2025-09-01` (hanya pertama kali).
-5. Atur `BOOTSTRAP_TOKEN` via `npx wrangler pages secret put BOOTSTRAP_TOKEN --project-name bosku-one-system`, gunakan nilai acak >= 32 karakter dari input aman, bukan kode sumber.
-6. `npm run build && npx wrangler pages deploy dist --project-name bosku-one-system`; lalu uji URL dan buat pemilik melalui UI. Cek binding D1 di Pages sebelum inisialisasi.
+Setelah slot database tersedia, buat **D1 Bosku tersendiri**: buat `bosku-one-system-db`, ganti UUID placeholder di `wrangler.jsonc`, jalankan `npx wrangler d1 migrations apply bosku-one-system-db --remote`, buat Pages project pada branch `main`, dan deploy `dist/` setelah build. Inisialisasi owner di **produksi** tetap membutuhkan pengamanan khusus: operator deployment dapat menghasilkan nilai acak secara internal dan memasangnya sebagai Pages secret `BOOTSTRAP_TOKEN`; nilainya tidak boleh masuk git/log. Tidak ada token yang perlu diberikan untuk Phase 2 lokal. Pastikan binding D1 benar sebelum deploy; jangan menerbitkan Worker yang menunjuk UUID placeholder.
 
-**URL produksi:** belum ada. **GitHub:** https://github.com/Sparkmind-obp-off/Bozq-one-system (branch `main`).
-
-## Langkah berikutnya
-
-Sesi 2 / Sprint 3: pelanggan dan kunjungan, pencarian cepat, riwayat, dan walk-in tanpa booking. Lanjutkan sprint berikutnya sesuai `docs/11`; jangan klaim MVP selesai sebelum skenario penerimaan A–M lolos dan pilot 7–14 hari dimulai.
+**Produksi:** belum tersedia. **GitHub:** https://github.com/Sparkmind-obp-off/Bozq-one-system (`main`). **Selanjutnya:** Phase 3 / Sprint 5–6, impor transaksi aman; kemudian retensi/reminder/BI dan hardening sebelum pilot 7–14 hari.

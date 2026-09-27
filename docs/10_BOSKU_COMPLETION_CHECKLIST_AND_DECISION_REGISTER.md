@@ -71,20 +71,20 @@ These should be measured, not guessed.
 ## 5. Implementation sequence
 
 ### Phase A — Foundation
-- [ ] app shell
-- [ ] authentication/roles
-- [ ] business/branch model
-- [ ] environment configuration
-- [ ] database migrations
-- [ ] audit foundation
+- [x] app shell
+- [x] authentication/roles
+- [x] business/branch model
+- [x] environment configuration (no secret required locally)
+- [x] database migrations
+- [x] audit foundation
 
 ### Phase B — Customer and visit core
-- [ ] customer records
-- [ ] visits
-- [ ] capsters
-- [ ] services
-- [ ] customer history
-- [ ] walk-in flow
+- [x] customer records
+- [x] visits
+- [x] capsters
+- [x] services
+- [x] customer history
+- [x] walk-in flow
 
 ### Phase C — Import proof
 - [ ] CSV upload
@@ -107,12 +107,12 @@ These should be measured, not guessed.
 - [ ] return opportunity view
 
 ### Phase E — Booking and daily certainty
-- [ ] booking creation
-- [ ] optional capster selection
-- [ ] party size
-- [ ] status lifecycle
-- [ ] confirmed/expected/walk-in/actual distinction
-- [ ] projected vs actual revenue
+- [x] booking creation
+- [x] optional capster selection
+- [x] party size (per-person booking records)
+- [x] status lifecycle
+- [ ] confirmed/expected/walk-in/actual distinction (confirmed/walk-in/arrival/completed work; evidence-based expected remains future)
+- [ ] projected vs actual revenue (projection and explicit 'actual unavailable' work; actual import awaits Phase C)
 
 ### Phase F — Reminder workflow
 - [ ] consent
@@ -143,14 +143,14 @@ These should be measured, not guessed.
 ## 6. Definition of Done
 
 ### Core
-- [ ] app loads reliably
-- [ ] authentication works
-- [ ] roles are enforced
-- [ ] customer records work
-- [ ] visit lifecycle works
-- [ ] walk-in flow works
-- [ ] booking is optional and functional
-- [ ] daily view works
+- [x] app loads reliably (local Pages/D1 verified)
+- [x] authentication works
+- [x] roles are enforced
+- [x] customer records work
+- [x] visit lifecycle works
+- [x] walk-in flow works
+- [x] booking is optional and functional
+- [x] daily view works
 
 ### Data
 - [ ] CSV import works
@@ -158,23 +158,23 @@ These should be measured, not guessed.
 - [ ] duplicate protection works
 - [ ] provenance is retained
 - [ ] import errors are understandable
-- [ ] customer matching is conservative
-- [ ] historical transaction values are preserved
+- [x] customer matching is conservative (explicit ID/WhatsApp only; same-name customers stay separate)
+- [ ] historical transaction values are preserved (import proof pending)
 
 ### Intelligence
-- [ ] last visit is visible
+- [x] last visit is visible
 - [ ] return intervals are calculated
 - [ ] due state is visible
 - [ ] reminder candidate logic works
 - [ ] projected vs actual revenue is separated
 
 ### Safety
-- [ ] consent state is enforced
-- [ ] no automatic WhatsApp blast
-- [ ] no secrets in source
-- [ ] audit trail works
-- [ ] financial mutation is blocked by default
-- [ ] external integration failure does not corrupt core data
+- [ ] consent state is enforced (reminder workflow pending)
+- [x] no automatic WhatsApp blast
+- [x] no secrets in source
+- [x] audit trail works
+- [x] financial mutation is blocked by default (no POS write route)
+- [ ] external integration failure does not corrupt core data (import/sync pending)
 
 ### Pilot
 - [ ] realistic Bosku data loaded
@@ -231,6 +231,10 @@ Stop and reassess if:
 - imported data produces unexplained duplicates;
 - external integration becomes a dependency for core operations;
 - features accumulate without pilot evidence.
+
+## Phase 2 execution note (2026-09-27)
+
+Sprint 3–4 operational exit gate passed locally: owner setup without manual token; customer create/search/edit/detail, conservative WhatsApp matching, capster/service management with owner-only mutation, walk-in without booking, booking with per-person visit records, Today, lifecycle/terminal states, and projection visibly distinct from unavailable actual. D1 migrations 0001–0002 were applied locally; automated tests and Wrangler smoke run passed. This is **not** the complete MVP: expected forecast, Kasir Pro import/actual, retention, reminders, offline queue, production deployment, and pilot remain open. BYOK production D1 has not been created. An earlier attempt hit the account database quota; the latest list suggests a slot may now be available, but a dedicated Bosku database must be created and verified before deployment. No unrelated D1 may be reused/deleted without explicit authorization.
 
 ## 11. Final operating rule
 

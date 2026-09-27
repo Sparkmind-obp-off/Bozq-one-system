@@ -1,15 +1,20 @@
 import { Hono } from 'hono'
+import { HTTPException } from 'hono/http-exception'
+import operations from './routes'
+import { InputError } from './operations'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { can, digest, hashPassword, newSessionToken, verifyPassword, type Role } from './security'
 
-type Bindings = { DB: D1Database; BOOTSTRAP_TOKEN?: string }
-type Principal = { id: string; display_name: string; role: Role; business_id: string }
-type Variables = { principal: Principal }
+export type Bindings = { DB: D1Database; BOOTSTRAP_TOKEN?: string }
+export type Principal = { id: string; display_name: string; role: Role; business_id: string }
+export type Variables = { principal: Principal }
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 const cookieName = 'bosku_session'
 const sessionSeconds = 60 * 60 * 24 * 7
 
 app.onError((error, c) => {
+  if (error instanceof HTTPException) return c.json({ error: error.message }, error.status)
+  if (error instanceof InputError) return c.json({ error: error.message }, 400)
   console.error('Request failed:', error instanceof Error ? error.name : 'Unknown error')
   return c.json({ error: 'Layanan belum tersedia. Coba lagi nanti.' }, 500)
 })
@@ -52,7 +57,10 @@ async function issueSession(c: any, userId: string) {
 
 app.post('/api/bootstrap', async c => {
   const configured = c.env.BOOTSTRAP_TOKEN
-  if (!configured || configured.length < 32 || c.req.header('X-Bootstrap-Token') !== configured) return c.json({ error: 'Inisialisasi tidak diizinkan.' }, 403)
+  const url = new URL(c.req.url)
+  // No manual token for local development; production setup stays secret-gated.
+  const localOnly = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname) && !c.req.header('X-Forwarded-For')
+  if (!localOnly && (!configured || configured.length < 32 || c.req.header('X-Bootstrap-Token') !== configured)) return c.json({ error: 'Inisialisasi hanya tersedia lokal atau dengan otorisasi produksi.' }, 403)
   const existing = await c.env.DB.prepare("SELECT id FROM app_user WHERE role = 'owner' LIMIT 1").first()
   if (existing) return c.json({ error: 'Pemilik sudah dibuat.' }, 409)
   const body = await c.req.json().catch(() => null)
@@ -135,6 +143,8 @@ app.post('/api/owner/users', async c => {
   ])
   return c.json({ id, username, name, role }, 201)
 })
+
+app.route('/api', operations)
 
 app.get('/', c => c.html(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#203b34"><title>Bosku One System</title><link rel="stylesheet" href="/static/style.css"></head><body><header><span class="mark">B.</span><strong>Bosku <span>One System</span></strong><small>Fondasi operasional</small></header><main id="app"><p>Memuat...</p></main><footer>Kasir Pro tetap sumber transaksi. Tidak ada angka perkiraan yang dianggap pendapatan aktual.</footer><script src="/static/app.js" defer></script></body></html>`))
 
