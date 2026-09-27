@@ -44,7 +44,7 @@ async function issueSession(c: any, userId: string) {
   setCookie(c, cookieName, token, { httpOnly: true, secure: new URL(c.req.url).protocol === 'https:', sameSite: 'Lax', path: '/', maxAge: sessionSeconds })
 }
 
-function normalizeWhatsapp(value: string): string | null {
+export function normalizeWhatsapp(value: string): string | null {
   const digits = value.replace(/\D/g, '')
   if (!digits) return null
   if (digits.startsWith('08')) return '62' + digits.slice(1)
