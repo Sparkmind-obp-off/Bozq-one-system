@@ -4,6 +4,8 @@
 >
 > **Execution model:** 6 phases → 12 sprints → 8 focused sessions.
 >
+> **Execution-budget model:** Run this as a staged execution program, not a one-shot prompt. Each Team Spark session should target approximately **300–400 credits/units of execution budget**, with **300 as the normal target and 400 as a soft ceiling**. Do not intentionally consume the full available account balance. If a session reaches its useful stopping point early, stop and continue in the next session. Exact Genspark consumption can vary by model, tool calls, context, and retries, so these numbers are a planning budget, not a guaranteed billing/credit conversion.
+>
 > **Primary rule:** Do not restart discovery. The product contract is already defined. Implement, test, verify, document, and only ask a question when the missing answer genuinely blocks implementation, security, legal compliance, or acceptance testing.
 
 ---
