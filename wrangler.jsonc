@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bosku-one-system",
+  "compatibility_date": "2025-09-01",
+  "pages_build_output_dir": "./dist",
+  // Local-only placeholder. Replace database_id with a NEW Bosku D1 UUID before production deploy.
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "bosku-one-system-db",
+    "database_id": "00000000-0000-0000-0000-000000000001",
+    "migrations_dir": "migrations"
+  }]
+}
