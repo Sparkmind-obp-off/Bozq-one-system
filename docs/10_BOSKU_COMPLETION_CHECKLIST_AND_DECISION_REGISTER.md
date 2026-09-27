@@ -1,6 +1,6 @@
 # BOSKU COMPLETION CHECKLIST AND DECISION REGISTER
 
-**Status:** Phase B customer + visit core substantially implemented; capster/service management remains  
+**Status:** Phase 3 code deployed; production owner setup and authenticated smoke pending
 **Date:** 2026-09-27
 
 ## 1. Decision
@@ -87,24 +87,24 @@ These should be measured, not guessed.
 - [x] walk-in flow
 
 ### Phase C — Import proof
-- [ ] CSV upload
-- [ ] Excel upload if practical
-- [ ] column detection
-- [ ] mapping UI
-- [ ] validation
-- [ ] dry run
-- [ ] deduplication
-- [ ] provenance
-- [ ] idempotent commit
-- [ ] import report
+- [x] CSV file selection and bounded JSON transfer (256 KB / 300 rows)
+- [ ] Excel upload (CSV export supported; XLSX pending)
+- [x] column detection for common aliases
+- [ ] complete mapping UI (required fields and two optional identity columns can be mapped; other aliases auto-detect)
+- [x] validation
+- [x] dry run
+- [x] deduplication
+- [x] provenance
+- [x] idempotent commit
+- [x] import report
 
 ### Phase D — Customer return engine
-- [ ] observed intervals
-- [ ] due calculation
-- [ ] due states
-- [ ] customer list
-- [ ] customer detail
-- [ ] return opportunity view
+- [x] observed intervals from distinct completed visit dates
+- [x] due calculation (documented observed median window)
+- [x] due states
+- [x] customer list
+- [x] customer detail
+- [x] return opportunity view
 
 ### Phase E — Booking and daily certainty
 - [x] booking creation
@@ -112,15 +112,15 @@ These should be measured, not guessed.
 - [x] party size (per-person booking records)
 - [x] status lifecycle
 - [ ] confirmed/expected/walk-in/actual distinction (confirmed/walk-in/arrival/completed work; evidence-based expected remains future)
-- [ ] projected vs actual revenue (projection and explicit 'actual unavailable' work; actual import awaits Phase C)
+- [x] projected vs imported actual revenue separated; missing actual stays unavailable
 
 ### Phase F — Reminder workflow
-- [ ] consent
-- [ ] reminder candidates
-- [ ] message templates
-- [ ] review
-- [ ] WhatsApp handoff
-- [ ] reminder event history
+- [x] explicit consent capture/revocation and server checks
+- [x] due reminder candidates
+- [x] single short message draft (configurable templates pending)
+- [x] human review before preparation
+- [x] user-initiated WhatsApp handoff (no automatic send)
+- [ ] reminder event history UI (events stored and audited)
 
 ### Phase G — Owner BI
 - [ ] daily overview
@@ -153,28 +153,28 @@ These should be measured, not guessed.
 - [x] daily view works
 
 ### Data
-- [ ] CSV import works
-- [ ] dry-run works
-- [ ] duplicate protection works
-- [ ] provenance is retained
-- [ ] import errors are understandable
+- [x] CSV import works in automated integration tests
+- [x] dry-run works without writes
+- [x] duplicate protection works
+- [x] provenance is retained
+- [x] import errors are understandable
 - [x] customer matching is conservative (explicit ID/WhatsApp only; same-name customers stay separate)
-- [ ] historical transaction values are preserved (import proof pending)
+- [x] imported transaction values remain immutable; conflicting external IDs are rejected
 
 ### Intelligence
 - [x] last visit is visible
-- [ ] return intervals are calculated
-- [ ] due state is visible
-- [ ] reminder candidate logic works
-- [ ] projected vs actual revenue is separated
+- [x] return intervals are calculated from distinct completed visit days
+- [x] due state is visible
+- [x] reminder candidate logic works
+- [x] projected vs actual revenue is separated
 
 ### Safety
-- [ ] consent state is enforced (reminder workflow pending)
+- [x] consent state is enforced on prepare AND handoff
 - [x] no automatic WhatsApp blast
 - [x] no secrets in source
 - [x] audit trail works
 - [x] financial mutation is blocked by default (no POS write route)
-- [ ] external integration failure does not corrupt core data (import/sync pending)
+- [x] invalid/conflicting imports reject commit without modifying existing data
 
 ### Pilot
 - [ ] realistic Bosku data loaded
@@ -235,6 +235,16 @@ Stop and reassess if:
 ## Phase 2 execution note (2026-09-27)
 
 Sprint 3–4 operational exit gate passed locally: owner setup without manual token; customer create/search/edit/detail, conservative WhatsApp matching, capster/service management with owner-only mutation, walk-in without booking, booking with per-person visit records, Today, lifecycle/terminal states, and projection visibly distinct from unavailable actual. D1 migrations 0001–0002 were applied locally; automated tests and Wrangler smoke run passed. This is **not** the complete MVP: expected forecast, Kasir Pro import/actual, retention, reminders, offline queue, production deployment, and pilot remain open. BYOK production D1 has not been created. An earlier attempt hit the account database quota; the latest list suggests a slot may now be available, but a dedicated Bosku database must be created and verified before deployment. No unrelated D1 may be reused/deleted without explicit authorization.
+
+## Phase 3 execution note (2026-09-27)
+
+Implemented: owner-only CSV import preview/commit with detection, basic manual mapping, strict row validation, dedupe by external ID or file fingerprint + row, exact WhatsApp-only customer linkage, sync_run and audit; no fabricated transactions/visits. Snapshot source is **owner-provided Kasir Pro CSV**, not a verified direct API connector. Actual reports include imported snapshot values only; no export has yet been loaded into production. XLSX and full export-specific mapping remain pending until a real sample is available.
+
+Return estimates use up to 101 recent completed visit records per customer, deduplicated by calendar date. At least 3 distinct dates / 2 positive intervals are required. Median of up to 5 recent intervals defines a window of median +/- max(2 days, ceil(20% median)); `due_soon` starts one half-window before the window, `due` is within it, `overdue` follows. This is an observed estimate, not a promise, probability or retention percentage. Transactions without reliable customer identity stay unlinked and do not generate invented visits. Only visits marked completed drive the current return engine.
+
+Consent defaults to unknown. A staff member can record a direct customer statement and audit it. Prepare and handoff both recheck consent = yes; no system route sends WhatsApp, and `handoff_opened` does not assert delivery. Revocation blocks previously prepared handoffs. Reminder event history is stored but not yet surfaced in the UI.
+
+CF BYOK deployment: dedicated D1 `bosku-one-system-db` (UUID `d1553757-d9b0-42e9-b89d-27fba2518d2a`), migrations 0001–0003 applied remotely; Pages `https://bosku-one-system.pages.dev` deployed successfully. Production UI, static assets, status, unauthorized API protection, bootstrap denial without secret, and D1 schema were verified. `BOOTSTRAP_TOKEN` is a Pages secret (not committed); the first owner must create their own account via the production setup form using the separately delivered one-time code. No owner or real transaction data has been inserted into production. **Authenticated production customer/visit/booking/import/return/reminder write smoke remains unverified**, so Phase 3 production verification is PARTIAL, not PASS. Local D1 and automated API tests cover these workflows. After the owner sets up, run authenticated smoke with real authorized account and consented test data, avoiding synthetic financial imports in production. No Kasir Pro API connector, XLSX import, full BI, pilot or offline write queue yet.
 
 ## 11. Final operating rule
 

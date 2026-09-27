@@ -3,11 +3,11 @@
   "name": "bosku-one-system",
   "compatibility_date": "2025-09-01",
   "pages_build_output_dir": "./dist",
-  // Local-only placeholder. Replace database_id with a NEW Bosku D1 UUID before production deploy.
+  // Dedicated Bosku production D1; local development remains isolated via --local.
   "d1_databases": [{
     "binding": "DB",
     "database_name": "bosku-one-system-db",
-    "database_id": "00000000-0000-0000-0000-000000000001",
+    "database_id": "d1553757-d9b0-42e9-b89d-27fba2518d2a",
     "migrations_dir": "migrations"
   }]
 }

@@ -52,9 +52,12 @@ async function start() {
   } catch (error) { root.textContent = error.message }
 }
 function showSetup() {
-  clear(); heading('Siapkan Bosku', 'Pembuatan pemilik pertama hanya dari localhost. Tidak memerlukan token manual untuk pengembangan lokal.')
-  if (!['localhost', '127.0.0.1'].includes(location.hostname)) { panel('Setup belum tersedia dari alamat ini').append(node('p', '', 'Buka aplikasi melalui localhost pada mesin pengembangan untuk membuat akun pertama. Akses publik tidak dapat menginisialisasi aplikasi.')); return }
-  panel('Akun pemilik').append(form('<label>Nama<input name="name" required minlength="2"></label><label>Username<input name="username" required minlength="3"></label><label>Sandi pribadi (minimal 12 karakter)<input name="password" type="password" required minlength="12" autocomplete="new-password"></label>', async data => { await write('/api/bootstrap', 'POST', Object.fromEntries(data)); await start() }, 'Buat akun pemilik'))
+  clear(); heading('Siapkan Bosku', 'Pembuatan pemilik pertama. Di produksi gunakan kode setup dari operator deployment; lokal tidak memerlukan kode.')
+  const local = ['localhost', '127.0.0.1'].includes(location.hostname)
+  panel('Akun pemilik').append(form(`${local ? '' : '<label>Kode setup produksi<input name="setup_code" type="password" required autocomplete="off"></label>'}<label>Nama<input name="name" required minlength="2"></label><label>Username<input name="username" required minlength="3"></label><label>Sandi pribadi (minimal 12 karakter)<input name="password" type="password" required minlength="12" autocomplete="new-password"></label>`, async fields => {
+    const data = Object.fromEntries(fields); const code = data.setup_code; delete data.setup_code
+    await request('/api/bootstrap', { method: 'POST', headers: code ? { 'X-Bootstrap-Token': code } : {}, body: JSON.stringify(data) }); await start()
+  }, 'Buat akun pemilik'))
 }
 function showLogin() {
   clear(); heading('Masuk ke Bosku', 'Layanan operasional · Kasir Pro tetap sumber transaksi.')
@@ -63,11 +66,11 @@ function showLogin() {
 function show(key) {
   screen = key; clear()
   const nav = node('nav', 'app-nav'); nav.setAttribute('aria-label', 'Menu utama')
-  nav.append(navButton('Hari ini', 'today'), navButton('Pelanggan', 'customers'), navButton('Booking', 'bookings'))
-  if (currentUser.role === 'owner') nav.append(navButton('Pengaturan', 'settings'))
+  nav.append(navButton('Hari ini', 'today'), navButton('Pelanggan', 'customers'), navButton('Booking', 'bookings'), navButton('Peluang kembali', 'returns'))
+  if (currentUser.role === 'owner') nav.append(navButton('Impor Kasir Pro', 'import'), navButton('Pengaturan', 'settings'))
   nav.append(button('Keluar', async () => { try { await write('/api/logout', 'POST', {}); currentUser = null; showLogin() } catch (e) { message(e.message) } }, true))
   root.append(nav)
-  const views = { today: showToday, customers: showCustomers, bookings: showBookings, settings: showSettings }
+  const views = { today: showToday, customers: showCustomers, bookings: showBookings, returns: showReturns, import: showImport, settings: showSettings }
   return Promise.resolve(views[key]?.()).catch(error => message(error.message))
 }
 
@@ -120,7 +123,7 @@ async function renderTodayList() {
   metrics.append(pills)
   const moneyPanel = node('div', 'money-grid')
   const projection = node('article', 'money-card'); projection.append(node('small', '', 'PROYEKSI BOOKING AKTIF'), node('strong', '', rupiah(summary.projected_value)), node('small', '', summary.projection_incomplete ? 'Sebagian harga belum diatur; jumlah tidak lengkap.' : 'Berdasarkan harga layanan yang dikonfigurasi.'))
-  const actual = node('article', 'money-card'); actual.append(node('small', '', 'AKTUAL KASIR PRO'), node('strong', '', rupiah(summary.actual_value)), node('small', '', 'Hanya dari transaksi otoritatif yang diimpor. Selesai layanan ≠ dibayar.'))
+  const actual = node('article', 'money-card'); actual.append(node('small', '', 'AKTUAL KASIR PRO'), node('strong', '', summary.actual_value == null ? 'Actual transaction data belum tersedia' : rupiah(summary.actual_value)), node('small', '', 'Hanya dari transaksi Kasir Pro yang diimpor. Selesai layanan ≠ dibayar.'))
   moneyPanel.append(projection, actual); metrics.append(moneyPanel)
   list.replaceChildren(node('h2', '', 'Aktivitas'))
   if (!visits.visits.length && !bookings.bookings.length) list.append(node('p', '', 'Belum ada aktivitas tercatat.'))
@@ -236,9 +239,12 @@ async function loadCustomers() {
   })
 }
 async function showCustomerDetail(customerId) {
-  clear(); const { customer, visits, completed_visits } = await request(`/api/customers/${customerId}`)
+  clear(); const [{ customer, visits, completed_visits }, opportunity] = await Promise.all([request(`/api/customers/${customerId}`), request(`/api/returns/${customerId}`)])
   const nav = button('← Kembali ke pelanggan', () => show('customers'), true); root.append(nav)
   heading(customer.name || customer.whatsapp || 'Pelanggan', `${completed_visits} layanan selesai · ${customer.whatsapp || 'Tanpa WhatsApp'}`)
+  const insight = panel('Pola kembali (estimasi)'); insight.append(returnDescription(opportunity.return_opportunity), node('p', '', `Persetujuan pengingat WhatsApp: ${opportunity.consent_status === 'yes' ? 'Ya' : opportunity.consent_status === 'no' ? 'Tidak' : 'Belum diketahui — perlu tinjauan'}`))
+  const consentPanel = panel('Catat persetujuan pelanggan'); consentPanel.append(node('p', '', 'Hanya catat jawaban pelanggan secara langsung. Adanya nomor WhatsApp bukan persetujuan.'))
+  const consentForm = form('<label>Jawaban pelanggan<select name="status"><option value="unknown">Belum diketahui</option><option value="yes">Setuju pengingat</option><option value="no">Tidak setuju</option></select></label><label>Catatan bukti percakapan<input name="notes" required minlength="3" maxlength="300" placeholder="Contoh: menyetujui saat kunjungan"></label>', async data => { await write(`/api/customers/${customerId}/consent`, 'POST', { ...Object.fromEntries(data), source: 'customer_explicit' }); await showCustomerDetail(customerId); message('Persetujuan dicatat.', 'success') }, 'Simpan jawaban'); consentPanel.append(consentForm)
   const panelNode = panel('Riwayat kunjungan'); panelNode.append(button('Catat walk-in untuk pelanggan ini', async () => { await show('today'); document.querySelector('.customer-picker select[name="customer_id"]').value = customerId }, false))
   const editPanel = panel('Perbarui profil')
   const editForm = form('<label>Nama<input name="name" maxlength="80"></label><label>WhatsApp<input name="whatsapp" inputmode="tel" maxlength="22"></label>', async data => {
@@ -250,6 +256,68 @@ async function showCustomerDetail(customerId) {
   visits.forEach(visit => { const card = node('article', 'activity-card'); card.append(node('strong', '', visit.service || 'Layanan belum dipilih'), statusTag(visit.status), node('p', '', `${visit.occurred_at.replace('T', ' ')} · ${visit.capster || 'Capster belum dipilih'} · ${visit.source === 'walk_in' ? 'Walk-in' : 'Booking'}`)); panelNode.append(card) })
 }
 
+const dueLabel = { unknown: 'Belum ada pola kunjungan', insufficient_history: 'Belum cukup riwayat', active_pattern: 'Pola aktif', due_soon: 'Mendekati rentang', due: 'Memasuki rentang', overdue: 'Melewati rentang' }
+function returnDescription(entry) {
+  const group = node('div', 'return-evidence')
+  group.append(node('strong', '', dueLabel[entry.state] || 'Belum ada pola kunjungan'))
+  group.append(node('p', '', `${entry.visit_count} hari kunjungan selesai · Terakhir: ${entry.last_visit || 'belum ada'} · ${entry.days_since_last_visit == null ? 'belum ada jeda' : entry.days_since_last_visit + ' hari sejak terakhir'}`))
+  if (entry.observed_interval_days != null) group.append(node('p', '', `Median interval teramati: ${entry.observed_interval_days} hari · Perkiraan rentang: ${entry.window_start} s.d. ${entry.window_end}. Bukan kepastian.`))
+  return group
+}
+async function showReturns() {
+  heading('Peluang kembali', 'Berdasarkan hari kunjungan selesai yang tercatat, bukan target retensi buatan. Hanya pengguna yang menekan Kirim di WhatsApp.')
+  const list = panel('Pelanggan & kandidat'); const result = await request('/api/returns')
+  if (!result.customers.length) list.append(node('p', '', 'Belum ada pelanggan.'))
+  result.customers.forEach(entry => {
+    const card = node('article', 'activity-card'); card.append(node('h3', '', entry.name || entry.whatsapp || 'Pelanggan'), returnDescription(entry))
+    card.append(node('p', '', `Consent: ${entry.consent_status === 'yes' ? 'Setuju' : entry.consent_status === 'no' ? 'Tidak setuju' : 'Perlu tinjauan'} · ${entry.whatsapp || 'Tanpa nomor'}`))
+    card.append(button('Tinjau pelanggan', () => showCustomerDetail(entry.id), true))
+    if (['due', 'overdue'].includes(entry.state) && entry.consent_status === 'yes' && entry.whatsapp) card.append(button('Tinjau & siapkan pesan', async () => {
+      if (!confirm(`Siapkan pengingat untuk ${entry.name || 'pelanggan ini'}? Tidak akan dikirim otomatis.`)) return
+      try {
+        const prepared = await write('/api/reminders/prepare', 'POST', { customer_id: entry.id })
+        const preview = node('article', 'message-preview'); preview.append(node('p', '', prepared.message), node('p', '', 'Pesan belum dikirim. Periksa isi dan penerima sebelum membuka WhatsApp.'))
+        preview.append(button('Buka WhatsApp (kirim manual)', async () => {
+          try { const result = await write(`/api/reminders/${prepared.id}/handoff`, 'POST', {}); window.open(result.url, '_blank', 'noopener,noreferrer'); message('WhatsApp dibuka. Tekan Kirim sendiri setelah memeriksa pesan.', 'pending') }
+          catch (error) { message(error.message) }
+        }))
+        card.querySelector('.message-preview')?.remove(); card.append(preview); message('Pesan disiapkan, belum dikirim.', 'success')
+      } catch (error) { message(error.message) }
+    }))
+    list.append(card)
+  })
+}
+async function showImport() {
+  if (currentUser.role !== 'owner') return show('today')
+  heading('Impor Kasir Pro', 'CSV ekspor resmi yang Anda miliki. Tidak mengakses API Kasir Pro. Lakukan pratinjau sebelum menyimpan; transaksi tanpa nomor identitas tetap tidak tertaut.')
+  const section = panel('Berkas CSV (maks. 256 KB / 300 baris)')
+  const upload = document.createElement('input'); upload.type = 'file'; upload.accept = '.csv,text/csv'; upload.setAttribute('aria-label', 'Pilih CSV Kasir Pro'); section.append(field('Pilih berkas', upload))
+  const map = form('<label>Kolom tanggal (jika tidak terdeteksi)<input name="transaction_time" placeholder="Nama kolom tepat di CSV"></label><label>Kolom total (jika tidak terdeteksi)<input name="gross_amount" placeholder="Nama kolom tepat di CSV"></label><label>Kolom ID transaksi (opsional)<input name="external_transaction_id"></label><label>Kolom nomor pelanggan (opsional)<input name="customer_whatsapp"></label>', async fields => {
+    if (!upload.files?.[0]) throw new Error('Pilih berkas CSV dahulu.')
+    const csv = await upload.files[0].text(); const mapping = Object.fromEntries([...fields].filter(([, val]) => val).map(([key, val]) => [key, val]))
+    const result = await write('/api/owner/import/preview', 'POST', { csv, mapping })
+    const review = panel('Tinjau impor'); review.id = 'import-review'
+    review.append(node('p', '', `Kolom: ${result.headers.join(' · ')}. Tidak terpetakan: ${result.unmapped.join(' · ') || 'tidak ada'}.`))
+    review.append(node('p', '', `${result.rows_seen} baris · ${result.rows_valid_new} baru · ${result.rows_duplicate} duplikat · ${result.conflicts.length} konflik · ${result.errors.length} salah · ${result.unlinked} tidak tertaut · Total baris baru: ${rupiah(result.observed_total)}`))
+    result.preview_rows.forEach(item => review.append(node('p', 'import-row', `Baris ${item.row} · ${item.transaction_id || 'tanpa ID'} · ${item.date} · ${rupiah(item.amount)} · ${item.customer || 'tanpa nama'} · ${item.linked ? 'pelanggan tertaut via nomor' : 'tidak tertaut'}`)))
+    if (result.rows_valid_new > 30) review.append(node('p', '', 'Menampilkan 30 baris baru pertama. Semua baris tetap dihitung saat commit.'))
+    result.errors.forEach(item => review.append(node('p', 'error', `Baris ${item.row}: ${item.error}`)))
+    if (result.conflicts.length) review.append(node('p', 'error', `ID transaksi berbenturan: baris ${result.conflicts.join(', ')}.`))
+    if (!result.errors.length && !result.conflicts.length) review.append(button('Konfirmasi & simpan transaksi', async () => {
+      if (!confirm('Simpan hasil impor ini? Periksa lagi nilai dan sumber berkas.')) return
+      try { const done = await write('/api/owner/import/commit', 'POST', { csv, mapping, confirm_file_id: result.file_id }); message(`Impor selesai: ${done.imported} baru, ${done.skipped} dilewati.`, 'success'); review.querySelector('button')?.remove(); await loadImportRuns() }
+      catch (error) { message(error.message) }
+    }))
+    document.querySelector('#import-review')?.remove(); section.after(review); message('Pratinjau berhasil. Tidak ada perubahan data.', 'pending')
+  }, 'Validasi tanpa menyimpan'); section.append(map)
+  const runs = panel('Riwayat impor'); runs.id = 'import-runs'; await loadImportRuns()
+}
+async function loadImportRuns() {
+  const target = document.querySelector('#import-runs'); if (!target) return
+  const data = await request('/api/owner/import/runs'); target.replaceChildren(node('h2', '', 'Riwayat impor'))
+  if (!data.runs.length) target.append(node('p', '', 'Actual transaction data belum tersedia.'))
+  data.runs.forEach(run => target.append(node('p', '', `${run.started_at} · ${run.status} · ${run.rows_imported} baru / ${run.rows_skipped} duplikat`)))
+}
 async function showSettings() {
   if (currentUser.role !== 'owner') return show('today')
   heading('Pengaturan', 'Hanya pemilik dapat mengubah capster, layanan, dan harga proyeksi. Kasir Pro tidak terpengaruh.')
@@ -269,6 +337,7 @@ async function showSettings() {
     await write('/api/owner/services', 'POST', payload); current.dataset.requestId = ''; current.reset(); message('Layanan dibuat.', 'success'); await loadCatalog()
   }, 'Tambah layanan'))
   const serviceList = node('section', 'catalog-list'); serviceList.id = 'service-list'; serviceSection.append(serviceList)
+  const password = panel('Keamanan akun'); password.append(form('<label>Sandi sekarang<input name="current_password" type="password" required autocomplete="current-password"></label><label>Sandi baru (minimal 12 karakter)<input name="new_password" type="password" required minlength="12" autocomplete="new-password"></label>', async data => { await write('/api/me/password', 'POST', Object.fromEntries(data)); currentUser = null; showLogin(); message('Sandi diganti. Silakan masuk kembali.', 'success') }, 'Ganti sandi'))
   const users = panel('Akses tim')
   users.append(node('p', '', 'Setiap pengguna memiliki akun terpisah. Pembuatan akun tercatat dalam audit.'))
   users.append(form('<label>Nama<input name="name" required minlength="2" maxlength="80"></label><label>Username<input name="username" required minlength="3" maxlength="40"></label><label>Peran<select name="role"><option value="capster">Capster</option><option value="operator">Operator</option></select></label><label>Sandi awal (minimal 12 karakter)<input name="password" type="password" required minlength="12"></label>', async data => {

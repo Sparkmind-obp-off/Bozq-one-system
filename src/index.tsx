@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import operations from './routes'
+import phase3 from './phase3'
 import { InputError } from './operations'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { can, digest, hashPassword, newSessionToken, verifyPassword, type Role } from './security'
@@ -144,9 +145,25 @@ app.get('/api/me', c => {
   return user ? c.json({ user }) : c.json({ error: 'Silakan masuk.' }, 401)
 })
 
+app.post('/api/me/password', async c => {
+  const user = principal(c)
+  if (!user) return c.json({ error: 'Silakan masuk.' }, 401)
+  const input = await c.req.json().catch(() => null)
+  if (typeof input?.current_password !== 'string' || typeof input?.new_password !== 'string' || input.new_password.length < 12 || input.new_password.length > 128 || input.current_password === input.new_password) return c.json({ error: 'Sandi baru harus berbeda dan berisi 12–128 karakter.' }, 400)
+  const account = await c.env.DB.prepare('SELECT password_hash FROM app_user WHERE id = ? AND status = ?').bind(user.id, 'active').first<{ password_hash: string }>()
+  if (!account || !await verifyPassword(input.current_password, account.password_hash)) return c.json({ error: 'Sandi sekarang tidak sesuai.' }, 403)
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE app_user SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(await hashPassword(input.new_password), user.id),
+    c.env.DB.prepare('DELETE FROM session WHERE user_id = ?').bind(user.id),
+    c.env.DB.prepare('INSERT INTO audit_event (id, branch_id, actor_user_id, action, entity_type, entity_id) VALUES (?, ?, ?, ?, ?, ?)').bind(crypto.randomUUID(), 'utama', user.id, 'password_changed', 'app_user', user.id)
+  ])
+  deleteCookie(c, cookieName, { path: '/' })
+  return c.json({ ok: true, note: 'Sandi diganti. Masuk lagi.' })
+})
+
 app.get('/api/owner/overview', async c => {
   const counts = await c.env.DB.prepare('SELECT (SELECT count(*) FROM customer) AS customers, (SELECT count(*) FROM visit) AS visits, (SELECT count(*) FROM booking) AS bookings, (SELECT count(*) FROM transaction_snapshot) AS transactions').first()
-  return c.json({ counts, note: 'Fondasi aktif. Angka transaksi hanya berasal dari impor Kasir Pro yang belum diimplementasikan.' })
+  return c.json({ counts, note: 'Aktual hanya berasal dari snapshot impor CSV Kasir Pro; kunjungan dan booking bukan pembayaran.' })
 })
 
 app.get('/api/owner/audit', async c => {
@@ -171,6 +188,7 @@ app.post('/api/owner/users', async c => {
 })
 
 app.route('/api', operations)
+app.route('/api', phase3)
 
 app.get('/', c => c.html(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#203b34"><title>Bosku One System</title><link rel="stylesheet" href="/static/style.css"></head><body><header><span class="mark">B.</span><strong>Bosku <span>One System</span></strong><small>Fondasi operasional</small></header><main id="app"><p>Memuat...</p></main><footer>Kasir Pro tetap sumber transaksi. Tidak ada angka perkiraan yang dianggap pendapatan aktual.</footer><script src="/static/app.js" defer></script></body></html>`))
 

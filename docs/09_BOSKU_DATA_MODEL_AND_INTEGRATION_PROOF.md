@@ -294,6 +294,14 @@ Migration `0002_core_operations.sql` extends the foundation without deleting exi
 - `GET /api/today` aggregates operational statuses by business-local date (`Asia/Jakarta`). Projected revenue includes only active confirmed/arrived/in-service bookings; actual remains null until authoritative Kasir Pro snapshots exist.
 - Owner bootstrap without an environment secret is restricted to local HTTP loopback and first-owner-only; public/production setup remains secret-gated. No user-supplied token is needed for local Phase 2 development.
 
+## Phase 3 implementation detail (2026-09-27)
+
+Migration `0003_import_retention.sql` adds optional customer link, customer/source reference fields, unique external transaction ID per branch/source, and reminder/consent lookup indexes. The Phase 3 importer processes owner-provided CSV only (no Kasir Pro API calls). It performs a read-only preview and atomically commits valid, non-conflicting new snapshots together with a `sync_run` checkpoint and audit entry. Duplicate external IDs with differing contents are conflicts; without an ID, hash of file contents plus row number is used for retry of the *same* file. No customer is created or joined on name alone: only exact normalized WhatsApp matching attaches an active existing customer. No visit is created from an imported transaction. Revenue marked actual means imported CSV snapshot, not external reconciliation.
+
+`GET /api/returns` uses completed visits only, after collapsing multiple services on the same calendar date. Three distinct days are required for two observed intervals. Median of up to five recent intervals gives a next-return window of +/- max(2 days, ceil(20% of median)); `due_soon` begins one half-width before that window. This rule is a conservative product default to validate during the pilot, not a measured customer-specific certainty. A customer with missing/insufficient history is labeled accordingly. Only explicit customer consent `yes` unlocks preparation and manual WhatsApp handoff; revoked consent blocks an existing prepared reminder. No server endpoint sends messages.
+
+Production D1 `bosku-one-system-db` is dedicated and migrated through 0003. CF BYOK Pages is deployed at `https://bosku-one-system.pages.dev`; public smoke and unauthorized access check passed. The first owner has not yet been created, so authenticated production business workflows remain pending verification. See `docs/10_BOSKU_COMPLETION_CHECKLIST_AND_DECISION_REGISTER.md`.
+
 ## 13. Operating principle
 
 **Build the smallest reliable layer that turns existing transaction history into customer certainty and repeat-business action.**
