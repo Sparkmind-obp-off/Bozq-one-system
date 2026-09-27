@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { can, digest, hashPassword, newSessionToken, verifyPassword, type Role } from './security'
 
-type Bindings = { DB: D1Database; BOOTSTRAP_TOKEN?: string }
+type Bindings = { DB: D1Database }
 type Principal = { id: string; display_name: string; role: Role; business_id: string }
 type Variables = { principal: Principal }
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -71,8 +71,6 @@ app.get('/api/status', async c => {
 })
 
 app.post('/api/bootstrap', async c => {
-  const configured = c.env.BOOTSTRAP_TOKEN
-  if (configured && c.req.header('X-Bootstrap-Token') !== configured) return c.json({ error: 'Inisialisasi tidak diizinkan.' }, 403)
   const existing = await c.env.DB.prepare("SELECT id FROM app_user WHERE role = 'owner' LIMIT 1").first()
   if (existing) return c.json({ error: 'Pemilik sudah dibuat.' }, 409)
   const body = await c.req.json().catch(() => null)
