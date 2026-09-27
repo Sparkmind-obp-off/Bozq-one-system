@@ -11,20 +11,64 @@ KasirPro / WhatsApp / Google / Social integrations
 
 Integrate rather than replace.
 
-## 2. KasirPro — current validation
-KasirPro publicly documents customer/member data, transaction history, reporting, cloud back office, employee/cashier management, and online/offline operation. Public materials also show reporting/export capabilities. An official public developer API/webhook specification has not been verified.
+## 2. KasirPro — current validation and staged integration
+KasirPro remains the transaction authority.
 
-Integration order:
-1. Official API/webhook, if KasirPro confirms availability.
-2. Official export/import such as CSV/Excel/JSON.
-3. Controlled manual CSV bridge for MVP.
-4. Never scrape, bypass controls, extract credentials, or use undocumented access without authorization.
+The user has confirmed directly with KasirPro that the API/integration capability relevant to AI agents and external integrations is available on the **Max subscription tier**. The exact commercial terms and technical API contract should be verified from KasirPro documentation/account support before production implementation.
 
-Minimum dataset: transaction ID/invoice, timestamp, service/item, amount/discount, payment method, customer/member identifier/name/WhatsApp when available, cashier/capster attribution, and cancellation/void status when available.
+This is **not an MVP blocker**.
 
-KasirPro remains the transaction authority. Bosku may enrich customer/retention intelligence but must not silently rewrite authoritative transaction values.
+Bosku development therefore uses a staged strategy:
 
-## 3. WhatsApp — selected operating model
+1. **Private/self-use build first** — develop and validate Bosku without requiring a paid KasirPro Max integration.
+2. **Proof of value** — confirm that the product is useful, stable, and saleable.
+3. **Customer deployment** — when a real customer/business is ready and integration is commercially justified, subscribe to the appropriate KasirPro tier and use its official API/integration capability.
+4. **Production connector** — implement against the official API/authentication/webhook contract supplied by KasirPro.
+5. **Scale/expand** — only after the integration works reliably for the first deployment.
+
+For the private MVP, an authorized export/import bridge (CSV/Excel) can still be used for realistic transaction data and integration-proof testing.
+
+Never scrape, bypass controls, extract credentials, or use undocumented access without authorization.
+
+Minimum desired dataset: transaction ID/invoice, timestamp, service/item, amount/discount, payment method, customer/member identifier/name/WhatsApp when available, cashier/capster attribution, and cancellation/void status when available.
+
+Bosku may enrich customer/retention intelligence but must not silently rewrite authoritative transaction values.
+
+## 3. Future KasirPro API integration model
+The target production pattern is:
+
+KasirPro Max
+→ official API/authentication
+→ Bosku secure integration gateway
+→ normalization/sync layer
+→ Bosku customer + visit intelligence
+→ dashboard / return intelligence / reminder workflow
+
+Potential inbound events/data:
+- completed transactions
+- customer/member updates
+- transaction corrections or cancellations, if exposed
+- service/catalog or pricing data, if exposed
+- cashier/capster attribution, if exposed
+- webhooks/events, if exposed.
+
+The exact endpoints, authentication method, rate limits, webhook semantics, pagination, retry behavior, and available resources are **TBD from the official KasirPro contract**. Do not invent endpoint names or API behavior before verification.
+
+Integration requirements:
+- secret storage outside source code
+- scoped credentials
+- idempotent sync
+- external record IDs preserved
+- sync cursor/checkpoint
+- retry with backoff
+- duplicate protection
+- provenance/source metadata
+- audit log
+- safe handling of revoked/expired credentials
+- read-only financial ingestion by default
+- no silent mutation of KasirPro records.
+
+## 4. WhatsApp — selected operating model
 For the pilot, the human sender is the user/capster. Bosku starts as a reminder intelligence and preparation layer:
 
 Customer due → consent check → reminder candidate → message prepared → user sends manually → result logged.
@@ -33,28 +77,28 @@ Meta's current WhatsApp Business policy requires the business to have the person
 
 Unknown consent is not treated as consent.
 
-## 4. Reminder authority
+## 5. Reminder authority
 - User/capster = reminder sender.
 - Owner can see reminder activity.
 - Other capster does not automatically receive sending authority.
 
 Separate eligibility, preparation, and actual sending so the system has a lightweight audit trail.
 
-## 5. Capster split / owner visibility
+## 6. Capster split / owner visibility
 Owner needs performance visibility by capster. Current scope is exactly two capsters: user/capster and the second capster.
 
 Preserve capster attribution, completed customer count, transaction value, service mix, and period. If KasirPro provides attribution, it is authoritative. If not, Bosku may record an operational attribution only from a reliable human-confirmed source.
 
-## 6. Branch and pricing strategy
+## 7. Branch and pricing strategy
 Multi-branch is future-ready but deferred. Current operation remains one branch.
 
 Use stable identifiers such as business_id, branch_id, service_id, and price_rule_id so future expansion does not require redesign. Pricing should be versionable so historical transactions are not rewritten when prices change.
 
-## 7. Other integrations
+## 8. Other integrations
 Google Business Profile: future validation, official API only.
 Instagram/TikTok: secondary; no shared-password automation; use official OAuth/permissions if needed.
 
-## 8. Security
+## 9. Security
 - Owner: full business/admin and financial visibility.
 - User/capster: operational customer, booking, reminder, and daily workflow access.
 - Other capster: operational access as configured.
@@ -62,35 +106,49 @@ Instagram/TikTok: secondary; no shared-password automation; use official OAuth/p
 
 Use least privilege, secure secrets, encrypted transport, audit important changes, and never store credentials in source or logs.
 
-## 9. Financial safety
+## 10. Financial safety
 Revenue should be read from the authoritative transaction source. Manual financial adjustments require reason, actor, timestamp, old value, and new value. No automated financial transfer or payout in MVP.
 
-## 10. Architecture candidate
+## 11. Architecture candidate
 Cloudflare-first remains the implementation direction if free-tier constraints remain satisfied: Pages/Workers, D1 or suitable database, sync/queue strategy, scheduled reminder eligibility, and secure secrets/configuration.
 
-## 11. Failure modes
+## 12. Failure modes
 Must tolerate internet outage, KasirPro unavailable, printer failure, WhatsApp integration failure, duplicate/partial sync, and stale external data. Physical haircut service must never depend on system availability.
 
-## 12. Current integration status
+## 13. Current integration status
 | Integration | Status | MVP approach |
 |---|---|---|
-| KasirPro | 🟡 API/webhook not publicly verified | Validate official API/export; controlled import bridge if needed |
+| KasirPro | 🟡 Max-tier API/integration reported by user; technical contract TBD | Private build via CSV/Excel bridge; official Max integration after sale/customer validation |
 | WhatsApp | 🟢 Human sender chosen | Consent-gated manual reminder |
 | WhatsApp Cloud API | 🟡 Future | Only after automation is justified |
 | Google Business Profile | 🟡 Future | Official API only |
 | Instagram/TikTok | 🟡 Future | No password-based automation |
 | Multi-branch | 🟡 Future | Keep identifiers ready, defer UI |
 
-## 13. Blocking questions remaining
-1. What KasirPro account/plan is Bosku currently using, and can we get a CSV/Excel export sample of transactions plus customers/members?
-2. Which number will be the operational Bosku reminder number? The user's existing WhatsApp/WhatsApp Business number is acceptable for the pilot.
-3. For existing customers, how will the user identify those who have already explicitly agreed to receive reminders?
-4. Does KasirPro currently record the actual capster/cashier for each Bosku transaction?
+## 14. Decision
+**KasirPro API is a post-validation integration, not a prerequisite for building Bosku.**
 
-Everything else can be deferred until the pilot produces evidence.
+Build and prove the Bosku product independently first. When the product has a real paying customer or a deployment where KasirPro integration creates clear value, purchase/upgrade KasirPro to the required Max tier and connect through the official integration surface.
 
-## 14. Principle
+This keeps development capital-efficient while preserving a clear production path.
+
+## 15. Principle
 Do not automate what has not yet been proven necessary.
 
 Real workflow:
-KasirPro → customer/visit intelligence → due customer → consent check → reminder candidate → user sends → response/booking → next visit → measured return.
+
+Private Bosku build
+→ realistic data/import proof
+→ product validation
+→ real sale/customer
+→ KasirPro Max
+→ official API/integration
+→ secure sync
+→ customer/visit intelligence
+→ due customer
+→ consent check
+→ reminder candidate
+→ user/business sends
+→ response/booking
+→ next visit
+→ measured return.
