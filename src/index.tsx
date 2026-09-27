@@ -24,9 +24,8 @@ app.use('/api/*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff')
   if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
     const origin = c.req.header('Origin')
-    // Same-origin only. Reject absent Origin for browser cookie requests; bootstrap uses a secret header.
     if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: 'Asal permintaan tidak diizinkan.' }, 403)
-    if (!origin && c.req.path !== '/api/bootstrap') return c.json({ error: 'Asal permintaan diperlukan.' }, 403)
+    if (!origin) return c.json({ error: 'Asal permintaan diperlukan.' }, 403)
     if (!c.req.header('Content-Type')?.toLowerCase().startsWith('application/json')) return c.json({ error: 'Gunakan JSON.' }, 415)
   }
   await next()
@@ -43,17 +42,38 @@ app.use('/api/*', async (c, next) => {
 
 function principal(c: { get: (key: 'principal') => Principal }): Principal | undefined { return c.get('principal') }
 
-app.get('/api/status', async c => {
-  const row = await c.env.DB.prepare("SELECT count(*) as total FROM app_user WHERE role = 'owner'").first<{ total: number }>()
-  return c.json({ ready: (row?.total ?? 0) > 0, authenticated: !!principal(c) })
-})
-
 async function issueSession(c: any, userId: string) {
   const token = newSessionToken()
   const expires = new Date(Date.now() + sessionSeconds * 1000).toISOString()
   await c.env.DB.prepare('INSERT INTO session (token_hash, user_id, expires_at) VALUES (?, ?, ?)').bind(await digest(token), userId, expires).run()
   setCookie(c, cookieName, token, { httpOnly: true, secure: new URL(c.req.url).protocol === 'https:', sameSite: 'Lax', path: '/', maxAge: sessionSeconds })
 }
+
+export function normalizeWhatsapp(value: string): string | null {
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return null
+  if (digits.startsWith('08')) return '62' + digits.slice(1)
+  if (digits.startsWith('8')) return '62' + digits
+  if (digits.startsWith('620')) return '62' + digits.slice(3)
+  if (digits.startsWith('62')) return digits
+  return digits
+}
+
+function cleanOptionalText(value: unknown, max = 160): string | null {
+  if (typeof value !== 'string') return null
+  const cleaned = value.trim()
+  return cleaned ? cleaned.slice(0, max) : null
+}
+
+async function audit(c: any, actor: Principal, action: string, entityType: string, entityId: string, after?: unknown, before?: unknown) {
+  await c.env.DB.prepare('INSERT INTO audit_event (id, branch_id, actor_user_id, action, entity_type, entity_id, before_snapshot, after_snapshot) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), 'utama', actor.id, action, entityType, entityId, before ? JSON.stringify(before) : null, after ? JSON.stringify(after) : null).run()
+}
+
+app.get('/api/status', async c => {
+  const row = await c.env.DB.prepare("SELECT count(*) as total FROM app_user WHERE role = 'owner'").first<{ total: number }>()
+  return c.json({ ready: (row?.total ?? 0) > 0, authenticated: !!principal(c) })
+})
 
 app.post('/api/bootstrap', async c => {
   const configured = c.env.BOOTSTRAP_TOKEN
@@ -110,6 +130,12 @@ app.use('/api/owner/*', async (c, next) => {
   const user = principal(c)
   if (!user) return c.json({ error: 'Silakan masuk.' }, 401)
   if (!can(user.role, 'administration')) return c.json({ error: 'Hanya pemilik yang boleh mengakses.' }, 403)
+  await next()
+})
+
+app.use('/api/data/*', async (c, next) => {
+  const user = principal(c)
+  if (!user) return c.json({ error: 'Silakan masuk.' }, 401)
   await next()
 })
 
