@@ -1,6 +1,6 @@
 # BOSKU COMPLETION CHECKLIST AND DECISION REGISTER
 
-**Status:** Execution baseline  
+**Status:** Phase B customer + visit core implemented  
 **Date:** 2026-09-27
 
 ## 1. Decision
@@ -71,20 +71,20 @@ These should be measured, not guessed.
 ## 5. Implementation sequence
 
 ### Phase A — Foundation
-- [ ] app shell
-- [ ] authentication/roles
-- [ ] business/branch model
-- [ ] environment configuration
-- [ ] database migrations
-- [ ] audit foundation
+- [x] app shell
+- [x] authentication/roles
+- [x] business/branch model
+- [x] environment configuration
+- [x] database migrations
+- [x] audit foundation
 
 ### Phase B — Customer and visit core
-- [ ] customer records
-- [ ] visits
-- [ ] capsters
-- [ ] services
-- [ ] customer history
-- [ ] walk-in flow
+- [x] customer records
+- [x] visits
+- [x] capsters
+- [x] services
+- [x] customer history
+- [x] walk-in flow
 
 ### Phase C — Import proof
 - [ ] CSV upload
