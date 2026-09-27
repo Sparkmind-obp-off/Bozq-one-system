@@ -1,2 +1,0 @@
-# Copy to .dev.vars for local use. Never commit the real token.
-BOOTSTRAP_TOKEN=replace-with-long-random-secret-at-least-32-characters
