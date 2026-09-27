@@ -1,6 +1,6 @@
 # BOSKU COMPLETION CHECKLIST AND DECISION REGISTER
 
-**Status:** Phase B customer + visit core implemented  
+**Status:** Phase B customer + visit core substantially implemented; capster/service management remains  
 **Date:** 2026-09-27
 
 ## 1. Decision
@@ -81,8 +81,8 @@ These should be measured, not guessed.
 ### Phase B — Customer and visit core
 - [x] customer records
 - [x] visits
-- [x] capsters
-- [x] services
+- [ ] capsters
+- [ ] services
 - [x] customer history
 - [x] walk-in flow
 
