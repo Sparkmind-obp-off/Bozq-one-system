@@ -1003,3 +1003,70 @@ Now execute this repository as follows:
 ## ONE-LINE NORTH STAR
 
 > **Build the smallest reliable system that helps Bosku know who came, what happened, who is likely due based on observed history, what is happening today, and what action the capster/owner can safely take next — without replacing Kasir Pro or disrupting the shop.**
+
+
+# 29. WORKLOAD-FIRST EXECUTION DIRECTIVE — NEWEST LOCK
+
+The numbered documents 13–16 define the newest product operating model and must be applied to all future implementation.
+
+## 29.1 Observe first
+Before proposing or implementing a new feature, identify the real workload:
+
+**Observe → Burden → Real Gap → Layer → Implement → Verify**
+
+Do not begin from “what feature should we add?” Begin from “what work is unnecessarily carried by a human?”
+
+## 29.2 Layer decision
+Use:
+
+**OBSERVE → HUMAN / PROGRAMMATIC**
+
+Then, inside PROGRAMMATIC:
+
+**SYSTEMATIC → AUTOMATION → AGENTIC**
+
+These are alternatives selected by evidence, not a ladder that every workflow must climb.
+
+### Systematic
+Use when deterministic software already removes the burden.
+
+### Automation
+Use when a repeatable rule/trigger/schedule can execute without repeated human initiation.
+
+### Agentic
+Use only when Systematic and Automation are insufficient because the workflow requires multi-step reasoning, dynamic context selection, adaptation, or orchestration.
+
+## 29.3 Simplicity rule
+If a simple screen solves the problem, stop at the screen.
+
+If a deterministic rule solves the problem, do not build an agent.
+
+If automation solves the problem, do not add agentic behavior merely for sophistication.
+
+## 29.4 Real-world pilot behavior
+During the pilot, continuously record:
+
+- repeated manual work;
+- memory burden;
+- search burden;
+- calculation burden;
+- repetition;
+- coordination;
+- monitoring;
+- reporting;
+- decision complexity.
+
+Use the observation playbook before turning these into features.
+
+## 29.5 Kasir Pro boundary
+Do not make Kasir Pro API access a technical blocker for the current MVP/pilot. Manual transaction operation and safe CSV/manual bridging are acceptable until evidence demonstrates that direct synchronization is materially necessary.
+
+## 29.6 Production execution remains mandatory
+For production-bound code changes, preserve the required loop:
+
+**Implement → Test → Typecheck → Build → CF BYOK Deploy → Production Verify → Docs → Commit/Push**
+
+A deployment is not “done” without production verification appropriate to the change.
+
+## 29.7 North star
+> **Move real, unnecessary workload away from humans into the simplest safe system layer — and only increase automation complexity when real evidence requires it.**
