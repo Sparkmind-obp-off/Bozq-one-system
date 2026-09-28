@@ -267,3 +267,37 @@ If an answer is required to build safely, ask it.
 If it is not required, implement with a documented default and validate during the pilot.
 
 **Next job: execute, test, load realistic data, observe real usage, and iterate from evidence.**
+
+
+## 12. WORKLOAD-FIRST DECISION LOCK — 2026-09-28
+
+The product thesis is now explicitly **workload-first**.
+
+### Primary discovery layer
+**OBSERVE** is the first layer and the reason a feature exists. Every future feature must begin from an observed real workload, burden, or gap.
+
+### Execution layers
+After observation, classify the workload as:
+
+**HUMAN → SYSTEMATIC → AUTOMATION → AGENTIC**
+
+These are not mandatory maturity stages. Select the lowest-complexity layer that safely removes the burden.
+
+- **HUMAN:** physical work, relationship, nuanced judgment, sensitive decisions, accountability.
+- **SYSTEMATIC:** storage, retrieval, calculation, workflow state, dashboards, deterministic rules.
+- **AUTOMATION:** repeated rule/trigger/schedule-based execution.
+- **AGENTIC:** multi-step reasoning, dynamic planning, adaptation, and orchestration where simpler layers are insufficient.
+
+### Permanent rule
+Do not add a feature because it is technically impressive. Build it because an observed workload justifies moving work from a human into the appropriate layer.
+
+### Kasir Pro implication
+Kasir Pro remains the transaction authority/reference layer. Manual entry or CSV can remain the bridge while the workload is small. Official API integration becomes justified only when real usage demonstrates that transaction synchronization has become a material operational bottleneck or automation requirement.
+
+See:
+- `docs/13_BOSKU_WORKLOAD_FIRST_OPERATING_MODEL.md`
+- `docs/14_BOSKU_WORKLOAD_GAP_REGISTER_AND_LAYER_MAP.md`
+- `docs/15_BOSKU_OBSERVATION_PLAYBOOK.md`
+- `docs/16_BOSKU_LAYERING_DECISION_MATRIX.md`
+
+**New product gate:** before implementing a new workflow, record the burden, evidence, chosen layer, simpler-layer rejection reason, human control, and success metric.
