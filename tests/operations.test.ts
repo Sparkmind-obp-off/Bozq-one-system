@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import app from '../src/index'
 import { canTransition, localTime, normalizeWhatsapp, projectedTotal } from '../src/operations'
 import { parseCsv, detectColumns, normalizeRow } from '../src/import'
@@ -158,6 +159,74 @@ test('Phase 2 API: no-token setup, owner permissions, customers, walk-in, bookin
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM price_rule WHERE service_id = ?').get(service.id)?.n, 2)
   assert.equal((await owner.call('/api/owner/audit')).data.events.some((event: any) => event.action === 'service_updated'), true)
   assert.equal(sqlite.prepare('SELECT count(*) AS n FROM transaction_snapshot').get()?.n, 0)
+  sqlite.close()
+})
+
+test('browser API wrapper keeps JSON header with setup code and handles bad responses', async () => {
+  const script = readFileSync(new URL('../public/static/app.js', import.meta.url), 'utf8')
+  const section = script.slice(script.indexOf('async function request('), script.indexOf('const write ='))
+  let observed: any, loginShown = false
+  const context: any = {
+    fetch: async (_url: string, init: any) => { observed = init; return { status: 201, ok: true, json: async () => ({ ok: true }) } },
+    currentUser: null as any, showLogin: () => { loginShown = true }
+  }
+  const send = runInNewContext(`${section}\nrequest`, context) as (path: string, options?: any) => Promise<any>
+  assert.deepEqual(await send('/api/bootstrap', { method: 'POST', headers: { 'X-Bootstrap-Token': 'private-value' }, body: '{}' }), { ok: true })
+  assert.equal(observed.headers['Content-Type'], 'application/json')
+  assert.equal(observed.headers['X-Bootstrap-Token'], 'private-value')
+  assert.equal(observed.credentials, 'same-origin')
+  context.fetch = async () => ({ status: 502, ok: false, json: async () => { throw new SyntaxError('HTML from upstream') } })
+  await assert.rejects(send('/api/status'), /Respons layanan tidak valid \(HTTP 502\)/)
+  context.fetch = async () => ({ status: 401, ok: false, json: async () => ({ error: 'Silakan masuk.' }) })
+  context.currentUser = { id: 'owner' }
+  await assert.rejects(send('/api/me'), /Sesi berakhir/)
+  assert.equal(loginShown, true)
+  assert.equal(context.currentUser, null)
+})
+
+test('HTTPS production setup, secure cookie, expiration, logout and re-login', async () => {
+  const { DB, sqlite } = database()
+  const base = 'https://bosku-one-system.pages.dev'
+  const token = 'A'.repeat(40)
+  const post = (path: string, body: unknown, cookie?: string, code?: string) => app.request(base + path, {
+    method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...(code ? { 'X-Bootstrap-Token': code } : {}) }, body: JSON.stringify(body)
+  }, { DB, BOOTSTRAP_TOKEN: token })
+  const user = { username: 'ownerproduction', name: 'Pemilik Produksi', password: 'StrongUniquePassword2026!' }
+  assert.equal((await post('/api/bootstrap', user, undefined, 'wrong')).status, 403)
+  const setup = await post('/api/bootstrap', user, undefined, token)
+  assert.equal(setup.status, 201)
+  assert.match(setup.headers.get('Content-Type') || '', /application\/json/)
+  const cookieHeader = setup.headers.get('Set-Cookie') || ''
+  assert.match(cookieHeader, /^bosku_session=[0-9a-f]{64}/)
+  assert.match(cookieHeader, /HttpOnly/i)
+  assert.match(cookieHeader, /Secure/i)
+  assert.match(cookieHeader, /SameSite=Lax/i)
+  assert.match(cookieHeader, /Path=\//i)
+  assert.match(cookieHeader, /Max-Age=604800/i)
+  const cookie = cookieHeader.split(';')[0]
+  const stored = sqlite.prepare('SELECT username, password_hash FROM app_user WHERE role = ?').get('owner') as { username: string; password_hash: string }
+  assert.equal(stored.username, user.username)
+  assert.match(stored.password_hash, /^pbkdf2-sha256:100000:/)
+  assert.notEqual(stored.password_hash, user.password)
+  assert.equal(sqlite.prepare('SELECT count(*) AS n FROM session').get()?.n, 1)
+  assert.notEqual(sqlite.prepare('SELECT token_hash FROM session').get()?.token_hash, cookie.split('=')[1])
+  assert.equal((await app.request(base + '/api/me', { headers: { Cookie: cookie } }, { DB })).status, 200)
+  assert.equal((await app.request(base + '/api/today', { headers: { Cookie: cookie } }, { DB })).status, 200)
+  assert.equal((await post('/api/bootstrap', user, undefined, token)).status, 409)
+  assert.equal((await post('/api/login', { username: user.username, password: 'wrong' })).status, 401)
+  sqlite.prepare('UPDATE session SET expires_at = ?').run('2000-01-01T00:00:00.000Z')
+  assert.equal((await app.request(base + '/api/me', { headers: { Cookie: cookie } }, { DB })).status, 401)
+  const loggedIn = await post('/api/login', { username: user.username, password: user.password })
+  assert.equal(loggedIn.status, 200)
+  const renewedCookie = (loggedIn.headers.get('Set-Cookie') || '').split(';')[0]
+  assert.notEqual(renewedCookie, cookie)
+  assert.equal((await app.request(base + '/api/status', { headers: { Cookie: renewedCookie } }, { DB })).status, 200)
+  assert.equal((await app.request(base + '/api/me', { headers: { Cookie: renewedCookie } }, { DB })).status, 200)
+  const logout = await post('/api/logout', {}, renewedCookie)
+  assert.equal(logout.status, 200)
+  assert.match(logout.headers.get('Set-Cookie') || '', /Max-Age=0/i)
+  assert.equal((await app.request(base + '/api/me', { headers: { Cookie: renewedCookie } }, { DB })).status, 401)
+  assert.equal((await post('/api/login', { username: user.username, password: user.password })).status, 200)
   sqlite.close()
 })
 

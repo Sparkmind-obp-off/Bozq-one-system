@@ -9,11 +9,18 @@ const button = (title, action, secondary = false) => { const element = node('but
 const id = () => crypto.randomUUID()
 
 async function request(path, options = {}) {
+  const { headers = {}, ...rest } = options
   let response
-  try { response = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options }) }
+  try { response = await fetch(path, { credentials: 'same-origin', ...rest, headers: { 'Content-Type': 'application/json', ...headers } }) }
   catch { throw new Error('Tidak terhubung. Pekerjaan fisik tetap berjalan; perubahan BELUM tersimpan. Coba kembali saat tersambung.') }
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Permintaan gagal. Perubahan belum tersimpan.')
+  let data
+  try { data = await response.json() }
+  catch { throw new Error(`Respons layanan tidak valid (HTTP ${response.status}). Perubahan belum dapat dipastikan tersimpan; periksa data sebelum mencoba lagi.`) }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`Respons layanan tidak valid (HTTP ${response.status}). Periksa data sebelum mencoba lagi.`)
+  if (!response.ok) {
+    if (response.status === 401 && currentUser) { currentUser = null; showLogin(); throw new Error('Sesi berakhir. Silakan masuk kembali; perubahan belum tersimpan.') }
+    throw new Error(typeof data.error === 'string' ? data.error : `Permintaan gagal (HTTP ${response.status}). Perubahan belum tersimpan.`)
+  }
   return data
 }
 const write = (path, method, data) => request(path, { method, body: JSON.stringify(data) })
@@ -26,7 +33,7 @@ const form = (html, onSubmit, label = 'Simpan') => {
   const submit = node('button', '', label); submit.type = 'submit'; element.append(submit)
   element.onsubmit = async event => {
     event.preventDefault(); submit.disabled = true; message('Menyimpan...', 'pending')
-    try { await onSubmit(new FormData(element)); message('Tersimpan di server.', 'success') }
+    try { await onSubmit(new FormData(element)) }
     catch (error) { message(error.message) }
     finally { submit.disabled = false }
   }
@@ -49,7 +56,7 @@ async function start() {
     if (!state.ready) return showSetup()
     if (!state.authenticated) return showLogin()
     const result = await request('/api/me'); currentUser = result.user; show('today')
-  } catch (error) { root.textContent = error.message }
+  } catch (error) { clear(); heading('Belum tersambung', error.message); root.append(button('Coba lagi', start)) }
 }
 function showSetup() {
   clear(); heading('Siapkan Bosku', 'Pembuatan pemilik pertama. Di produksi gunakan kode setup dari operator deployment; lokal tidak memerlukan kode.')
@@ -235,7 +242,7 @@ async function loadCustomers() {
   if (!data.customers.length) list.append(node('p', '', 'Tidak ada pelanggan ditemukan.'))
   data.customers.forEach(customer => {
     const row = node('article', 'activity-card'); row.append(node('strong', '', customer.name || customer.whatsapp || 'Tanpa nama'), node('p', '', `${customer.completed_visits} kunjungan selesai · ${customer.whatsapp || 'Tanpa WhatsApp'}`))
-    row.append(button('Lihat riwayat', () => showCustomerDetail(customer.id), true)); list.append(row)
+    row.append(button('Lihat riwayat', () => showCustomerDetail(customer.id).catch(error => message(error.message)), true)); list.append(row)
   })
 }
 async function showCustomerDetail(customerId) {

@@ -1,7 +1,7 @@
 # BOSKU COMPLETION CHECKLIST AND DECISION REGISTER
 
-**Status:** Phase 3 code deployed; production owner setup and authenticated smoke pending
-**Date:** 2026-09-27
+**Status:** Phase 4 PARTIAL — owner auth recovered; positive production import/due/reminder proof awaits real authorized evidence
+**Date:** 2026-09-28
 
 ## 1. Decision
 
@@ -245,6 +245,18 @@ Return estimates use up to 101 recent completed visit records per customer, dedu
 Consent defaults to unknown. A staff member can record a direct customer statement and audit it. Prepare and handoff both recheck consent = yes; no system route sends WhatsApp, and `handoff_opened` does not assert delivery. Revocation blocks previously prepared handoffs. Reminder event history is stored but not yet surfaced in the UI.
 
 CF BYOK deployment: dedicated D1 `bosku-one-system-db` (UUID `d1553757-d9b0-42e9-b89d-27fba2518d2a`), migrations 0001–0003 applied remotely; Pages `https://bosku-one-system.pages.dev` deployed successfully. Production UI, static assets, status, unauthorized API protection, bootstrap denial without secret, and D1 schema were verified. `BOOTSTRAP_TOKEN` is a Pages secret (not committed); the first owner must create their own account via the production setup form using the separately delivered one-time code. No owner or real transaction data has been inserted into production. **Authenticated production customer/visit/booking/import/return/reminder write smoke remains unverified**, so Phase 3 production verification is PARTIAL, not PASS. Local D1 and automated API tests cover these workflows. After the owner sets up, run authenticated smoke with real authorized account and consented test data, avoiding synthetic financial imports in production. No Kasir Pro API connector, XLSX import, full BI, pilot or offline write queue yet.
+
+## Phase 4 production hardening and verification (2026-09-28)
+
+**Root cause confirmed, not guessed:** the Phase 3 frontend `request()` built JSON headers then spread `options` afterward, so the production setup form's `{headers: {'X-Bootstrap-Token': code}}` replaced the entire header set. The browser sent `text/plain;charset=UTF-8` rather than JSON, and the server correctly returned HTTP 415 `{"error":"Gunakan JSON."}`. The dedicated production D1 had 0 owners/0 sessions before remediation. A request with explicit JSON Content-Type and intentionally invalid code returned 403, proving middleware/secret handling was functioning. No password, code, cookie value or token was logged or committed.
+
+**Fix:** split `headers` from request options before merging with `Content-Type: application/json`, preserve same-origin credentials, handle non-JSON/unexpected API responses as explicit failures, return to login on expired authenticated sessions, show recoverable startup state, and remove a misleading generic success notification. No server auth bypass, cookie weakening, database reset or new product feature. Added HTTPS setup/session/cookie/logout/expiration tests and a browser-wrapper regression test; complete suite 14/14, typecheck and build pass. CF BYOK deploy completed against the existing `bosku-one-system` project; D1 UUID unchanged, migrations remain 0001–0003.
+
+**Owner recovery:** before setup the D1 had no owner. A production owner `boskuowner` was created by this execution with a cryptographically generated password, stored privately and delivered through a user-session-protected artifact, **not** git. Production D1 confirms salted PBKDF2 hash, owner role and session record. Production login with correct password, refresh, authorized API, logout, rejection of the old cookie, re-login, a targeted expired session returning 401, and secure cookie (`HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`) all passed. Owner must rotate generated password via Pengaturan. Bootstrap code still exists as Pages secret; setup endpoint refuses a second owner (409). No publicly readable recovery credentials exist.
+
+**Production smoke:** public page/assets/status, HTTPS JSON responses, invalid-cookie 401, cross-origin mutation 403, malformed JSON 400, owner-only route protection and password rejection verified. With explicitly labeled `PHASE4 SMOKE` records, customer create/update/detail/duplicate prevention, capster/service, walk-in and booking lifecycle, Today, return insufficient-history/unknown-consent, CSV valid/invalid **preview only**, and audit were verified. At 390px touch viewport, actual browser login, refresh, navigation, customer cards/detail, booking card, CSV preview and logout passed without JS errors or horizontal document overflow. Test customer, visits, booking, capster, service and price rows were removed by exact IDs after verification; temporary test sessions were revoked. The bootstrap owner and audit events were preserved. Production transactions=0, consent=0, reminders=0, so actual remains unavailable; no fake payment, historical visit, marketing consent, or WhatsApp send was inserted.
+
+**Gate still open:** production commit of a real authorized Kasir Pro export, observed due candidate from three *real* completed-visit days, and consent-approved reminder preparation/handoff using actual customer permission have **not** been verified in production. Unit/integration tests cover these paths, but no synthetic consent or fabricated financial/history evidence was inserted to claim success. Therefore **Phase 4 STATUS = PARTIAL** and production verification = PARTIAL. Existing operations are usable, but the complete Phase 4 exit gate requires authorized real data/permission and another production smoke pass. Do not mark full PASS or start Phase 5 until then.
 
 ## 11. Final operating rule
 
