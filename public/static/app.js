@@ -73,11 +73,11 @@ function showLogin() {
 function show(key) {
   screen = key; clear()
   const nav = node('nav', 'app-nav'); nav.setAttribute('aria-label', 'Menu utama')
-  nav.append(navButton('Hari ini', 'today'), navButton('Pelanggan', 'customers'), navButton('Booking', 'bookings'), navButton('Peluang kembali', 'returns'))
+  nav.append(navButton('Hari ini', 'today'), navButton('Pelanggan', 'customers'), navButton('Booking', 'bookings'), navButton('Peluang kembali', 'returns'), navButton('Growth', 'growth'))
   if (currentUser.role === 'owner') nav.append(navButton('Impor Kasir Pro', 'import'), navButton('Pengaturan', 'settings'))
   nav.append(button('Keluar', async () => { try { await write('/api/logout', 'POST', {}); currentUser = null; showLogin() } catch (e) { message(e.message) } }, true))
   root.append(nav)
-  const views = { today: showToday, customers: showCustomers, bookings: showBookings, returns: showReturns, import: showImport, settings: showSettings }
+  const views = { today: showToday, customers: showCustomers, bookings: showBookings, returns: showReturns, growth: showGrowth, import: showImport, settings: showSettings }
   return Promise.resolve(views[key]?.()).catch(error => message(error.message))
 }
 
@@ -132,6 +132,7 @@ async function renderTodayList() {
   const projection = node('article', 'money-card'); projection.append(node('small', '', 'PROYEKSI BOOKING AKTIF'), node('strong', '', rupiah(summary.projected_value)), node('small', '', summary.projection_incomplete ? 'Sebagian harga belum diatur; jumlah tidak lengkap.' : 'Berdasarkan harga layanan yang dikonfigurasi.'))
   const actual = node('article', 'money-card'); actual.append(node('small', '', 'AKTUAL KASIR PRO'), node('strong', '', summary.actual_value == null ? 'Actual transaction data belum tersedia' : rupiah(summary.actual_value)), node('small', '', 'Hanya dari transaksi Kasir Pro yang diimpor. Selesai layanan ≠ dibayar.'))
   moneyPanel.append(projection, actual); metrics.append(moneyPanel)
+  try { const growth = await request('/api/growth/report'); const quick = node('p', 'growth-summary', `Pelanggan baru ${growth.today.new_customers} · Kunjungan selesai ${growth.today.visits} · Hadiah tersedia ${growth.today.rewards_available} · Aksi terbuka ${growth.today.open_actions}`); metrics.append(quick) } catch { /* Existing D1 rollback remains usable without Growth. */ }
   list.replaceChildren(node('h2', '', 'Aktivitas'))
   if (!visits.visits.length && !bookings.bookings.length) list.append(node('p', '', 'Belum ada aktivitas tercatat.'))
   bookings.bookings.forEach(entry => list.append(bookingCard(entry, true)))
@@ -250,6 +251,7 @@ async function showCustomerDetail(customerId) {
   const nav = button('← Kembali ke pelanggan', () => show('customers'), true); root.append(nav)
   heading(customer.name || customer.whatsapp || 'Pelanggan', `${completed_visits} layanan selesai · ${customer.whatsapp || 'Tanpa WhatsApp'}`)
   const insight = panel('Pola kembali (estimasi)'); insight.append(returnDescription(opportunity.return_opportunity), node('p', '', `Persetujuan pengingat WhatsApp: ${opportunity.consent_status === 'yes' ? 'Ya' : opportunity.consent_status === 'no' ? 'Tidak' : 'Belum diketahui — perlu tinjauan'}`))
+  try { await showGrowthProfile(customerId, visits) } catch (error) { message(error.message) }
   const consentPanel = panel('Catat persetujuan pelanggan'); consentPanel.append(node('p', '', 'Hanya catat jawaban pelanggan secara langsung. Adanya nomor WhatsApp bukan persetujuan.'))
   const consentForm = form('<label>Jawaban pelanggan<select name="status"><option value="unknown">Belum diketahui</option><option value="yes">Setuju pengingat</option><option value="no">Tidak setuju</option></select></label><label>Catatan bukti percakapan<input name="notes" required minlength="3" maxlength="300" placeholder="Contoh: menyetujui saat kunjungan"></label>', async data => { await write(`/api/customers/${customerId}/consent`, 'POST', { ...Object.fromEntries(data), source: 'customer_explicit' }); await showCustomerDetail(customerId); message('Persetujuan dicatat.', 'success') }, 'Simpan jawaban'); consentPanel.append(consentForm)
   const panelNode = panel('Riwayat kunjungan'); panelNode.append(button('Catat walk-in untuk pelanggan ini', async () => { await show('today'); document.querySelector('.customer-picker select[name="customer_id"]').value = customerId }, false))
@@ -379,6 +381,66 @@ async function loadAudit() {
   const target = document.querySelector('#audit-list'); if (!target) return
   const data = await request('/api/owner/audit')
   target.replaceChildren(...data.events.map(event => node('li', '', `${event.occurred_at} · ${event.action} · ${event.entity_type} · ${event.entity_id}`)))
+}
+
+async function showGrowthProfile(customerId, visits) {
+  const data = await request(`/api/growth/customers/${customerId}`)
+  const section = panel('Layanan & Growth pelanggan')
+  section.append(node('p', '', `Lifecycle: ${data.lifecycle} · ${data.visit_count} kunjungan selesai · Pertama: ${data.first_visit || 'belum ada'} · Terakhir: ${data.latest_visit || 'belum ada'}`))
+  section.append(node('p', '', `Asal: ${data.source?.source_code || 'unknown'} · Consent: ${data.consent.status === 'yes' ? 'setuju' : data.consent.status === 'no' ? 'menolak' : 'belum diketahui'} (${data.consent.captured_at || 'belum dicatat'})`))
+  section.append(node('p', '', data.loyalty.program ? `Potong rambut: ${data.loyalty.progress}/4 · Hadiah tersedia: ${data.loyalty.available}` : 'Loyalty belum diatur oleh pemilik.'))
+  section.append(node('p', '', `Catatan: ${data.customer.notes || 'belum ada'}`))
+  section.append(form('<label>Catatan layanan (maks. 500 karakter)<textarea name="notes" maxlength="500" rows="3"></textarea></label>', async fields => { await write(`/api/growth/customers/${customerId}/notes`, 'PATCH', Object.fromEntries(fields)); await showCustomerDetail(customerId); message('Catatan tersimpan.', 'success') }, 'Simpan catatan'))
+  section.querySelector('textarea').value = data.customer.notes || ''
+  const sourceForm = form('<label>Asal pelanggan<select name="source_code"><option value="walk_in">Walk-in</option><option value="whatsapp">WhatsApp</option><option value="instagram">Instagram</option><option value="google">Google</option><option value="referral">Referensi teman</option><option value="existing">Pelanggan lama</option><option value="other">Lainnya</option><option value="unknown">Belum diketahui</option></select></label>', async fields => { await write(`/api/growth/customers/${customerId}/source`, 'POST', Object.fromEntries(fields)); await showCustomerDetail(customerId); message('Asal dicatat.', 'success') }, 'Catat sumber')
+  section.append(sourceForm)
+  if (data.loyalty.program) {
+    section.append(node('p', '', 'Kredit hanya diberikan setelah layanan potong rambut yang dikonfigurasi benar-benar selesai. Pilih kunjungan selesai di bawah ini.'))
+    visits.filter(v => v.status === 'completed' && v.service_id === data.loyalty.program.reward_service_id).forEach(v => {
+      const row = node('article', 'activity-card'); row.append(node('p', '', `${v.occurred_at} · ${v.service || 'Tanpa layanan'}`))
+      row.append(button('Tinjau & beri kredit', async () => { if (!confirm('Pastikan ini kunjungan potong rambut berbayar yang memenuhi syarat. Tidak mencatat pembayaran.')) return; try { await write('/api/growth/loyalty/award', 'POST', { visit_id:v.id, program_id:data.loyalty.program.id }); await showCustomerDetail(customerId); message('Kredit diperiksa dan dicatat.', 'success') } catch(e) { message(e.message) } }, true)); section.append(row)
+    })
+    data.loyalty.rewards.filter(r => !r.redeemed_visit_id).forEach(reward => {
+      const redeemForm = form('', async fields => { if (!confirm('Konfirmasi layanan gratis benar-benar sudah diberikan? Tidak mencatat pembayaran.')) return; await write('/api/growth/loyalty/redeem', 'POST', { reward_id:reward.id,visit_id:fields.get('visit_id') }); await showCustomerDetail(customerId); message('Hadiah ditukar dan diaudit.', 'success') }, 'Catat penukaran hadiah')
+      const choices = visits.filter(v => v.status === 'completed' && v.service_id === data.loyalty.program.reward_service_id).map(v => ({id:v.id,name:`${v.occurred_at} · ${v.service}`}))
+      addSelect(redeemForm, 'Kunjungan gratis selesai (bukan yang sudah mendapat kredit)', 'visit_id', choices)
+      section.append(node('p', '', `Hadiah tersedia · ${reward.id}`), redeemForm)
+    })
+  }
+  section.append(button('Tambahkan ke antrean aksi', async () => { try { await write('/api/growth/queue', 'POST', { customer_id:customerId,kind:'follow_up',reason:'Tinjau tindak lanjut secara manual' }); message('Aksi dibuat. Belum ada pesan dikirim.', 'success') } catch(e){message(e.message)} }, true))
+}
+
+async function showGrowth() {
+  heading('Growth operasional', 'Angka berdasarkan data tercatat. Pendapatan hanya transaksi CSV Kasir Pro; tanpa data bukan berarti nol.')
+  const [report, queue, referrals, campaigns, program] = await Promise.all([request('/api/growth/report'),request('/api/growth/queue'),request('/api/growth/referrals'),request('/api/growth/campaigns'),request('/api/growth/program')])
+  const daily = panel('Hari ini')
+  daily.append(node('p', '', `${report.as_of} · Kunjungan selesai ${report.today.visits} · Pelanggan baru ${report.today.new_customers} · Pelanggan terlayani ${report.today.returning_customers} · Pendapatan aktual ${rupiah(report.today.revenue.revenue)} · Reward tersedia ${report.today.rewards_available} · Aksi terbuka ${report.today.open_actions}`))
+  const weekly = panel('Laporan 7 hari berjalan')
+  weekly.append(node('p', '', `${report.week.start} s.d. ${report.week.end} · Kunjungan ${report.week.visits} (7 hari sebelumnya ${report.previous_week.visits}) · Baru ${report.week.new_customers} · Repeat pelanggan ${report.week.returning_customers} (${report.week.repeat_rate == null ? 'belum ada sampel' : Math.round(report.week.repeat_rate * 100) + '% dari pelanggan terlayani'}) · Pendapatan ${rupiah(report.week.revenue.revenue)} (sebelumnya ${rupiah(report.previous_week.revenue.revenue)}) · Rata-rata transaksi ${rupiah(report.week.revenue.average_transaction_value)}`))
+  weekly.append(node('p', '', `Layanan: ${report.week.top_services.map(x => `${x.name} (${x.count})`).join(', ') || 'belum ada'} · Kredit ${report.week.credits} · Referensi ${report.week.referrals} · Peluang tertunda ${report.today.open_actions}`))
+  weekly.append(node('p', '', `${report.note} Bandingkan periode hanya bila sampel cukup. Observasi: ${report.week.visits < 5 ? 'sampel kecil; tinjau catatan kunjungan manual.' : 'tinjau perubahan periode dan penyebab di lapangan.'}`))
+  const dashboard = panel('Pelanggan & akuisisi')
+  dashboard.append(node('p', '', `Total ${report.customers.total} · Aktif ${report.customers.active} · Berisiko ${report.customers.at_risk} · Tidak aktif ${report.customers.inactive} · Berulang ${report.customers.repeat} · Kunjungan bulan ini ${report.month.visits} · Pendapatan bulan ini ${rupiah(report.month.revenue.revenue)}`))
+  dashboard.append(node('p', '', `Sumber pelanggan: ${Object.entries(report.sources).map(([k,v])=>`${k}: ${v}`).join(' · ') || 'belum dicatat'}`))
+  const actions = panel('Antrean aksi (manual, bukan pemeringkatan)')
+  if (!queue.actions.length) actions.append(node('p', '', 'Belum ada aksi tercatat. Mulai dari profil pelanggan.'))
+  queue.actions.forEach(a => { const card=node('article','activity-card'); card.append(node('strong','',a.name || 'Tanpa nama'),node('p','',`${a.kind} · ${a.reason} · ${a.status} · WhatsApp: ${a.consent.status}`))
+    card.append(button('Buka profil',()=>showCustomerDetail(a.customer_id),true))
+    if (!['done','dismissed'].includes(a.status)) card.append(button('Catat hasil',async()=>{ const outcome=prompt('Catat hasil nyata; kosong untuk batal'); if (!outcome) return; try {await write(`/api/growth/queue/${a.id}`,'PATCH',{status:'done',outcome}); show('growth')} catch(e){message(e.message)} },true))
+    actions.append(card) })
+  const referral = panel('Referensi pelanggan')
+  referral.append(node('p','',`${referrals.referrals.length} rujukan tercatat (tidak menyiratkan hadiah atau konversi).`))
+  referral.append(form('<label>ID pelanggan perujuk<input name="referrer_id" required></label><label>ID pelanggan baru yang dirujuk<input name="referred_id" required></label>',async fields=>{ await write('/api/growth/referrals','POST',Object.fromEntries(fields)); await show('growth'); message('Rujukan dicatat tanpa hadiah otomatis.','success')},'Catat rujukan'))
+  const campaign=panel('Kampanye manual')
+  campaign.append(node('p','',`${campaigns.campaigns.length} draft tercatat. Tidak ada pengiriman otomatis. Persetujuan wajib diperiksa lagi sebelum kontak.`))
+  campaigns.campaigns.forEach(x=>campaign.append(node('p','',`${x.name} · ${x.kind} · ${x.status} · ${x.audience}`)))
+  if(currentUser.role==='owner') {
+    const owner=panel('Pengaturan Growth (pemilik)')
+    owner.append(node('p','',program.program ? `Program aktif: ${program.program.name}. Tidak mengubah program saat kredit berjalan.` : 'Pilih layanan potong rambut yang memenuhi syarat untuk program 4+1.'))
+    if(!program.program) {const services=await request('/api/services'); const f=form('',async fields=>{await write('/api/owner/growth/program','POST',{service_id:fields.get('service_id')});await show('growth');message('Program 4+1 aktif.','success')},'Aktifkan program 4+1');addSelect(f,'Layanan potong rambut','service_id',services.services);owner.append(f)}
+    owner.append(form(`<label>Hari berisiko<input name="at_risk_days" type="number" min="1" max="365" value="${report.thresholds.at_risk_days}" required></label><label>Hari tidak aktif<input name="inactive_days" type="number" min="2" max="730" value="${report.thresholds.inactive_days}" required></label>`,async fields=>{await write('/api/owner/growth/settings','PUT',{at_risk_days:Number(fields.get('at_risk_days')),inactive_days:Number(fields.get('inactive_days'))});await show('growth');message('Ambang lifecycle disimpan.','success')},'Simpan ambang'))
+    campaign.append(form('<label>Nama kampanye<input name="name" required minlength="2" maxlength="80"></label><label>Jenis<select name="kind"><option value="retention">Retention</option><option value="reactivation">Reactivation</option><option value="loyalty">Loyalty</option><option value="referral">Referral</option><option value="new_customer">New customer</option><option value="seasonal">Seasonal</option></select></label><label>Audiens<input name="audience" required minlength="2" maxlength="200"></label><label>Pesan draft<textarea name="content" required minlength="2" maxlength="500"></textarea></label>',async fields=>{await write('/api/owner/growth/campaigns','POST',Object.fromEntries(fields));await show('growth');message('Draft kampanye tersimpan; tidak dikirim.','success')},'Simpan draft'))
+  }
 }
 
 window.addEventListener('offline', () => message('Koneksi terputus. Perubahan baru tidak akan dianggap tersimpan; layanan fisik tetap berjalan.'))

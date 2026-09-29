@@ -14,6 +14,7 @@ Sistem operasional pelanggan, walk-in, booking, dan peluang kembali untuk Bosku 
 - Sesi HttpOnly, role server-side dan audit; pelanggan, capster, katalog layanan/harga referensi, walk-in, booking 1–8 orang, Today.
 - Pemilik dapat melakukan preview, validasi, dan commit eksplisit CSV Kasir Pro dengan perlindungan duplikat serta provenance. Nilai aktual berasal hanya dari transaksi yang diimpor, bukan dari status layanan atau proyeksi booking.
 - Peluang kembali dihitung dari hari kunjungan selesai yang benar-benar tercatat. Consent WhatsApp awal unknown; pesan hanya dapat disiapkan jika kondisi dan persetujuan tepat, lalu pengguna sendiri yang membukanya dan menekan Kirim.
+- Phase 6 Growth di Neon: profil dengan catatan dan asal, lifecycle dengan ambang hari yang dapat diubah pemilik, loyalty 4 kunjungan potong rambut terpilih → 1 hadiah manual yang diaudit dan tidak mencatat pembayaran, referensi pelanggan, draft kampanye tanpa pengiriman, antrean aksi manual, laporan harian/7-hari dan metrik aktual CSV. Status hadiah/aksi bukan bukti pembayaran atau pesan terkirim.
 - Jika jaringan gagal, perubahan tidak dianggap tersimpan. Operasional fisik dan pembayaran di Kasir Pro tetap dapat berjalan.
 
 ## Panduan
@@ -21,7 +22,8 @@ Sistem operasional pelanggan, walk-in, booking, dan peluang kembali untuk Bosku 
 1. Login sebagai owner, ganti sandi awal di Pengaturan, lalu atur capster/layanan. Catat walk-in di Hari ini atau buat booking opsional.
 2. Tambah pelanggan/lihat riwayat. Nomor telepon tidak otomatis merupakan persetujuan kontak; catat jawaban pelanggan yang nyata.
 3. Validasi CSV asli Kasir Pro sebelum commit. Jangan memasukkan transaksi atau consent contoh ke produksi.
-4. Saat koneksi terganggu, periksa data server sebelum mengulangi permintaan untuk menghindari duplikat.
+4. Buka Growth untuk ringkasan dan antrean. Pemilik mengatur layanan potong rambut yang memenuhi program 4+1 serta ambang lifecycle; operator memberi kredit hanya untuk kunjungan selesai yang benar-benar memenuhi syarat, lalu mencatat penukaran pada kunjungan gratis selesai. Catat hasil tindakan manual secara jujur; draft kampanye tidak dikirim otomatis.
+5. Saat koneksi terganggu, periksa data server sebelum mengulangi permintaan untuk menghindari duplikat.
 
 ## URI aktif
 
@@ -39,15 +41,24 @@ Mutasi browser memakai JSON + Origin same-origin; endpoint selain status/setup/l
 | `POST /api/owner/import/preview`, `/api/owner/import/commit`; `GET /api/owner/import/runs` | CSV Kasir Pro |
 | `GET /api/returns?date=YYYY-MM-DD`, `GET /api/returns/:id` | Retention/due |
 | `POST /api/customers/:id/consent`, `/api/reminders/prepare`, `/api/reminders/:id/handoff` | Consent dan reminder manual |
+| `GET /api/growth/customers/:id`, `PATCH /api/growth/customers/:id/notes`, `POST /api/growth/customers/:id/source` | Profil Growth, catatan dan asal |
+| `GET /api/growth/program`, `POST /api/growth/loyalty/award`, `/api/growth/loyalty/redeem` | Program 4+1, kredit dan penukaran manual |
+| `GET/POST /api/growth/queue`, `PATCH /api/growth/queue/:id`; `GET/POST /api/growth/referrals` | Antrean dan rujukan |
+| `GET /api/growth/campaigns`, `/api/growth/report?date=YYYY-MM-DD` | Draft kampanye dan laporan berdasarkan data tersedia |
+| `POST /api/owner/growth/program`, `/api/owner/growth/campaigns`; `PUT /api/owner/growth/settings` | Pengaturan terbatas pemilik |
 
 Customer/visit/booking create memakai UUID klien untuk retry aman; waktu bisnis Asia/Jakarta.
 
 ## Database dan bukti cutover
 
-- PostgreSQL `database/migrations/0001`–`0004`: tabel operasional dengan nama/kolom kompatibel D1, sumber pelanggan eksplisit, program/kredit/hadiah loyalty, view aktual Kasir Pro, ledger migrasi PostgreSQL dan salinan sejarah migrasi D1. Ketiadaan data finansial/loyalitas tidak ditampilkan sebagai hasil rekayasa.
+- PostgreSQL `database/migrations/0001`–`0006`: tabel operasional dengan nama/kolom kompatibel D1, sumber pelanggan eksplisit, program/kredit/hadiah loyalty, view aktual Kasir Pro, ledger migrasi PostgreSQL dan salinan sejarah migrasi D1. Migrasi 0005 menambah metadata Growth, rujukan, draft kampanye, antrean aksi dan fungsi loyalty terisolasi; 0006 memberi hak runtime terbatas. Ketiadaan data finansial/loyalitas tidak ditampilkan sebagai hasil rekayasa.
 - `database/apply.py` memakai transaksi, lock dan checksum. `database/migrate_d1.py` menyalin export D1 privat dengan perbandingan jumlah dan kolom; `database/verify.py` memeriksa CRUD/FK/unique/loyalitas/analitik dengan rollback data uji. Script admin membutuhkan paket di `database/requirements.txt` dan URL melalui environment/secret, **bukan file repo/chat**.
 - Tepat sebelum cutover, export D1 terbaru (18 tabel/19 baris, 0 FK error) cocok field-by-field dengan Neon. Worker baru lebih dahulu dideploy dengan default D1 dan diuji; setelah persetujuan owner, secret `DB_PRIMARY` diaktifkan untuk Neon dan build yang sama di-deploy via CF BYOK. Owner-only `/api/owner/database-target` melakukan query PostgreSQL nyata dan mengembalikan `engine: neon`, `verified: true`.
 - Smoke produksi Neon: URL/aset, login/sesi, API terautentikasi, Today, pelanggan, capster/layanan, walk-in dan booking sampai selesai, return/consent yang aman, preview CSV saja, audit, logout/re-login, dan browser mobile 390px lulus. Data uji bertanda khusus dibersihkan; **tidak ada transaksi, consent, atau pesan WhatsApp fiktif**. D1 tetap dapat dibaca. Hasil post-cleanup kembali sama dengan snapshot D1 untuk 18 tabel/19 baris.
+
+## Batas integrasi yang ditunda
+
+Kasir Pro API **DEFERRED — PAID API ACCESS REQUIRED**. Kontrak future POS adapter, sumber kebenaran transaksi CSV, fingerprint/duplikat, autentikasi, sinkronisasi dan kegagalan dijelaskan di `docs/39_BOSKU_POS_INTEGRATION_BOUNDARY.md`. Belum ada WhatsApp API, otomatisasi kampanye, pembayaran maupun hasil pertumbuhan yang dapat diklaim dari data kosong.
 
 ## Pengembangan dan rollback
 

@@ -258,6 +258,12 @@ CF BYOK deployment: dedicated D1 `bosku-one-system-db` (UUID `d1553757-d9b0-42e9
 
 **Gate still open:** production commit of a real authorized Kasir Pro export, observed due candidate from three *real* completed-visit days, and consent-approved reminder preparation/handoff using actual customer permission have **not** been verified in production. Unit/integration tests cover these paths, but no synthetic consent or fabricated financial/history evidence was inserted to claim success. Therefore **Phase 4 STATUS = PARTIAL** and production verification = PARTIAL. Existing operations are usable, but the complete Phase 4 exit gate requires authorized real data/permission and another production smoke pass. Do not mark full PASS or start Phase 5 until then.
 
+## Phase 6 Growth implementation (2026-09-29)
+
+Neon-only additive migrations 0005–0006 add customer notes, configurable inactivity thresholds, referrals, campaign drafts, actions and per-customer serialized loyalty 4+1 award/redeem with uniqueness. Existing consent, CSV transaction authority, visit and booking, audit, return-window and D1 rollback are preserved. Growth reads use completed visits and documented CSV actuals only; null actual means unavailable, not zero. Campaigns are drafts and actions are manual; no Kasir Pro paid API nor WhatsApp automation. POS future boundary: `docs/39_BOSKU_POS_INTEGRATION_BOUNDARY.md` — **DEFERRED — PAID API ACCESS REQUIRED**.
+
+Rollback-only DB verification covered functions, double-award/redeem protection, relationships and analytics; original Phase 5 evidence stays historically accurate. Operational acceptance still depends on real configured haircut service, actual eligible visits and staff practice. Do not claim acquisition, revenue or retention outcomes from zero production records. Deployment and mobile/browser status must be recorded from observed results, not inferred from a build. CF BYOK deployed build successfully to `bosku-one-system.pages.dev`; production authenticated smoke (status/assets, login/logout, owner Neon probe, Today/customer and Growth report/queue/program/referrals/campaigns, invalid-award 400, guest 401) passed. Database 0005–0006 applied and verified with rollback-only fixtures; 18/18 application tests, typecheck and build passed. Mobile browser viewport checks at 390px/768px/desktop and a genuine business loyalty redemption have **not** been verified in this session, so Phase 6 acceptance is **PARTIAL**, not PASS.
+
 ## 11. Final operating rule
 
 **Questions are now evidence-driven, not exploration-driven.**

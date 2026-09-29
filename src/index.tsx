@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import operations from './routes'
 import phase3 from './phase3'
+import growth from './growth'
 import { neonD1Adapter } from './neon-db'
 import { InputError } from './operations'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -211,6 +212,7 @@ app.post('/api/owner/users', async c => {
 
 app.route('/api', operations)
 app.route('/api', phase3)
+app.route('/api', growth)
 
 app.get('/', c => c.html(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#203b34"><title>Bosku One System</title><link rel="stylesheet" href="/static/style.css"></head><body><header><span class="mark">B.</span><strong>Bosku <span>One System</span></strong><small>Fondasi operasional</small></header><main id="app"><p>Memuat...</p></main><footer>Kasir Pro tetap sumber transaksi. Tidak ada angka perkiraan yang dianggap pendapatan aktual.</footer><script src="/static/app.js" defer></script></body></html>`))
 

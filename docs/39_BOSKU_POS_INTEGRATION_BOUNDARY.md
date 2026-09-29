@@ -1,0 +1,11 @@
+# Kasir Pro integration boundary — Phase 6
+
+**STATUS: DEFERRED — PAID API ACCESS REQUIRED.** There is no live Kasir Pro API adapter, no mocked production connector, and no automatic synchronization or WhatsApp delivery. Current actual transaction source is the reviewed Kasir Pro CSV import. Visits, booking projections, and loyalty rewards are not payments.
+
+Future boundary: POS provider → separately implemented Kasir Pro adapter → existing CSV-compatible normalization and transaction snapshot/reconciliation contract → Bozq One System on Neon. Do not replace the core customer, visit, consent, and audit tables. Before enabling, obtain the legitimate paid package, vendor documentation, permitted scopes, rate limits, and owner approval. Keep vendor credentials as encrypted Cloudflare secrets, never in the UI, repo, or logs.
+
+Expected inputs: stable external customer ID where supported, customer phone only when lawful and available, transaction ID and timestamp, gross amount in IDR, line/service descriptions, capster identifier, and any vendor-provided visit ID. A customer name alone is not an identity match; a phone is not consent. Preserve raw provenance (external ID, source system, import/sync run, fingerprint, source timestamp) and explicitly track unmatched records. No fake consent or unverified payment status.
+
+Synchronization: first request read-only vendor access; backfill within agreed window; paginate with checkpoint in Neon; then incremental polling only after operational verification. Use a bounded cursor, idempotent upserts on provider transaction IDs/fingerprints, and conflict quarantine when an ID changes values. Do not overwrite reviewed CSV rows silently: match existing transaction IDs, compare fingerprints, record conflicts for owner review, and never dual-write Neon/D1. Retry transient errors with backoff; show failed checkpoints and unmatched data, and audit owner reconciliation. Reconcile daily totals against the vendor before declaring API data authoritative. At cutover, version the source priority between imported CSV and API events, explicitly mark overlap, and test rollback by disabling new sync rather than erasing historical snapshots.
+
+This document defines a boundary, not an implemented integration. Financial dashboards remain null when no actual imported transaction exists.

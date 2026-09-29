@@ -80,7 +80,7 @@ ops.get('/customers/:id', async c => {
   const id = uuid(c.req.param('id'))
   const customer = await c.env.DB.prepare('SELECT id, name, whatsapp, first_seen_at, last_visit_at, created_at FROM customer WHERE id = ? AND branch_id = ? AND status = ?').bind(id, branch, 'active').first()
   if (!customer) bad('Pelanggan tidak ditemukan.', 404)
-  const history = await c.env.DB.prepare('SELECT v.id, v.occurred_at, v.status, v.source, v.booking_id, COALESCE(s.name, v.service_summary) AS service, ca.display_name AS capster FROM visit v LEFT JOIN service s ON s.id = v.service_id LEFT JOIN capster ca ON ca.id = v.capster_id WHERE v.customer_id = ? AND v.branch_id = ? ORDER BY v.occurred_at DESC, v.id DESC LIMIT 100').bind(id, branch).all()
+  const history = await c.env.DB.prepare('SELECT v.id, v.occurred_at, v.status, v.source, v.booking_id, v.service_id, COALESCE(s.name, v.service_summary) AS service, ca.display_name AS capster FROM visit v LEFT JOIN service s ON s.id = v.service_id LEFT JOIN capster ca ON ca.id = v.capster_id WHERE v.customer_id = ? AND v.branch_id = ? ORDER BY v.occurred_at DESC, v.id DESC LIMIT 100').bind(id, branch).all()
   const count = await c.env.DB.prepare("SELECT count(*) AS total FROM visit WHERE customer_id = ? AND branch_id = ? AND status = 'completed'").bind(id, branch).first<{ total: number }>()
   return c.json({ customer, visits: history.results, completed_visits: count?.total ?? 0 })
 })
