@@ -10,4 +10,7 @@ dist/
 *.log
 *.bak
 *.sqlite
+__pycache__/
+*.py[cod]
+*.dump
 .DS_Store

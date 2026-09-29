@@ -1,61 +1,66 @@
 # Bosku One System
 
-Lapisan operasional pelanggan, walk-in, booking, dan peluang kembali untuk Bosku Cukur. **Kasir Pro tetap otoritas transaksi/pembayaran.** Bosku tidak membuat transaksi saat kunjungan selesai.
+Sistem operasional pelanggan, walk-in, booking, dan peluang kembali untuk Bosku Cukur. **Kasir Pro tetap otoritas transaksi/pembayaran**; penyelesaian layanan tidak membuat transaksi.
 
-## Status & URL
+## Status dan URL
 
-- Produksi CF BYOK: https://bosku-one-system.pages.dev (`main`, Cloudflare Pages); D1 khusus `bosku-one-system-db`, migrasi 0001–0003.
-- GitHub: https://github.com/Sparkmind-obp-off/Bozq-one-system
-- Phase 4: akar masalah setup produksi (frontend menimpa header `Content-Type` saat mengirim kode setup) diperbaiki dan dideploy. Owner `boskuowner` dibuat dengan sandi acak yang disampaikan **terpisah dan privat**; sandi tidak ada di repo. Segera masuk dan ganti sandi di **Pengaturan → Keamanan akun**; semua sesi akan dicabut.
-- Produksi telah diuji: bootstrap, login, cookie HttpOnly/Secure/SameSite=Lax/Path=/, refresh, API terautentikasi, logout, penolakan sesi lama, re-login, Today, pelanggan, walk-in, layanan, capster, booking, pratinjau CSV, return dengan riwayat tak cukup, consent unknown, audit dan browser mobile 390px. Rekam uji bertanda khusus dibersihkan; audit uji disimpan. **Belum diverifikasi di produksi:** commit impor transaksi riil dan due/reminder yang memerlukan riwayat dan consent pelanggan sungguhan. Jangan menciptakan transaksi, riwayat atau persetujuan palsu untuk menaikkan status pengujian; Phase 4 tetap PARTIAL sampai gate tersebut terverifikasi.
+- Produksi: https://bosku-one-system.pages.dev — Cloudflare Pages BYOK, **masih memakai Cloudflare D1** `bosku-one-system-db` (migrasi D1 0001–0003). Belum ada cutover ke Neon.
+- GitHub: https://github.com/Sparkmind-obp-off/Bozq-one-system (`main`).
+- **Phase 5 pre-cutover:** skema target Neon PostgreSQL, migrasi snapshot D1, integritas, dan adapter HTTP untuk staging telah diuji. Neon bukan database aktif produksi. Perubahan produksi membutuhkan persetujuan cutover eksplisit, penyegaran snapshot D1, rotasi rahasia yang sempat muncul di chat, dan smoke test baru.
+- Phase 4: akun owner `boskuowner` berfungsi di produksi. Kredensial awal disampaikan secara privat; ganti sandi melalui Pengaturan. Smoke Phase 4 yang memerlukan data riil/consent belum lulus penuh.
 
-## Fitur yang sudah ada
+## Fitur operasional
 
-- Login/sesi HttpOnly, server-side roles, audit; customer, capster, layanan/harga referensi, walk-in tanpa booking, booking 1–8 orang dan lifecycle, layar Today. Proyeksi harga booking tidak pernah dicatat sebagai pembayaran.
-- Pemilik dapat memilih CSV ekspor Kasir Pro (maksimal 256 KB / 300 baris), pratinjau/dry-run, memetakan kolom tanggal/total/ID/nomor secara opsional, meninjau konflik dan baru menyimpan secara eksplisit. Mendukung alias umum tanggal/total/ID/nama/nomor/layanan/metode/referensi. Tanggal waktu lokal `YYYY-MM-DD[THH:mm]`; total rupiah bulat. File dengan baris invalid atau konflik external ID tidak disimpan. ID eksternal, file hash, nomor baris, timestamp, sumber, laporan `sync_run` dan audit tetap tersimpan. Impor ulang dilewati; tanpa ID eksternal, dedupe menggunakan hash berkas dan nomor baris (berkas berbeda dengan isi identik yang diurut ulang tidak dijamin dedupe). Hanya nomor WhatsApp persis yang boleh menautkan pelanggan otomatis; nama saja tidak cukup. Impor tidak membuat kunjungan.
-- Return dari hari kunjungan selesai yang tercatat (bukan dari booking atau transaksi tanpa visit). Memerlukan tiga hari kunjungan berbeda / dua interval. Median maksimal lima interval terbaru, jendela perkiraan median +/- max(2 hari, 20% dibulatkan ke atas). Status: `unknown`, `insufficient_history`, `active_pattern`, `due_soon`, `due`, `overdue`; bukan prediksi kepastian. Hanya maksimal 101 catatan kunjungan terakhir / 100 pelanggan per tampilan pada MVP.
-- Consent WhatsApp reminder awal `unknown`. Petugas mencatat jawaban pelanggan langsung dengan sumber/catatan, diaudit; persetujuan dicek lagi saat siapkan pesan dan saat handoff. Pengingat hanya dari due/overdue, dibuka lewat WhatsApp oleh pengguna dan **pengguna sendiri yang menekan Kirim**. Tidak ada otomatisasi WhatsApp atau klaim pesan terkirim.
-- Nilai aktual Today hanya dari `transaction_snapshot` hasil impor CSV. Tanpa impor tampil **Actual transaction data belum tersedia**; snapshot belum direkonsiliasi ke laporan Kasir Pro.
+- Sesi HttpOnly, peran server-side dan audit. Pelanggan, capster, katalog layanan dan harga referensi; walk-in tanpa booking, booking 1–8 orang, lifecycle dan Today.
+- Pemilik memilih CSV ekspor Kasir Pro (maks. 256 KB / 300 baris), pratinjau, validasi, konflik/duplikasi dan commit eksplisit. Nomor WhatsApp persis saja dapat menautkan pelanggan; nama saja tidak. Snapshot impor adalah bukti transaksi, bukan proyeksi booking.
+- Pola kembali memakai hari kunjungan selesai berbeda: minimal 3 hari / 2 interval, median hingga 5 interval terbaru. Consent WhatsApp default `unknown`; hanya consent eksplisit memungkinkan persiapan reminder dan handoff WhatsApp manual. Tidak ada pengiriman otomatis.
+- Tanpa transaksi hasil impor, nilai aktual tetap tidak tersedia. Kegagalan jaringan/API tidak dianggap penyimpanan berhasil; operasional fisik dan Kasir Pro tetap bisa berjalan.
 
-## Panduan
+## Cara menggunakan
 
-1. Buka URL produksi, login menggunakan kredensial yang disampaikan privat, lalu ganti sandi. Tambah capster/layanan dari Pengaturan; pada Hari ini catat walk-in tanpa booking dan lanjutkan status bila diperlukan. Setup owner baru tidak dapat diulang karena sudah ada owner.
-2. Tambah pelanggan dengan nama/WhatsApp opsional; jangan menganggap nomor yang tersimpan sebagai consent. Booking dapat mencakup beberapa orang.
-3. Pemilik membuka **Impor Kasir Pro**, pilih CSV resmi yang dimiliki, validasi tanpa menyimpan, tinjau semua ringkasan, baru konfirmasi. Jika tidak cocok dengan ekspor nyata, jangan impor; mapping penuh masih pending.
-4. Buka **Peluang kembali** untuk melihat bukti interval dan kandidat. Catat persetujuan pelanggan di detail secara eksplisit; review pesan lalu pilih buka WhatsApp. Tidak ada pengiriman otomatis.
-5. Bila jaringan gagal, jangan menganggap operasi tercatat. Jika respons bukan JSON atau sesi kedaluwarsa, aplikasi menampilkan kegagalan yang jelas; muat ulang/periksa data sebelum mengulangi permintaan. Operasi fisik dan pembayaran di Kasir Pro tetap berjalan.
+1. Masuk dengan akun owner, ganti sandi awal; tambah capster/layanan di Pengaturan. Catat walk-in lewat Hari ini atau buat booking terpisah.
+2. Tambah pelanggan, lihat riwayat dan peluang kembali. Nomor telepon tidak otomatis memberikan izin kontak; catat persetujuan langsung pelanggan sebelum pesan.
+3. Tinjau CSV resmi Kasir Pro di Impor, baru konfirmasi jika isi benar. Jangan memasukkan transaksi contoh ke produksi.
+4. Bila jaringan terganggu, periksa apakah perubahan tersimpan sebelum retry; pembayaran fisik tetap di Kasir Pro.
 
 ## API aktif
 
-Mutasi browser harus JSON dengan `Origin` same-origin. `/api/status`, `/api/bootstrap`, `/api/login` bersifat publik; `/api/logout` aman dipanggil tanpa sesi untuk membersihkan cookie. API lainnya memerlukan sesi. `/api/owner/*` hanya owner, diperiksa di server.
+Mutasi browser memakai JSON dan Origin same-origin. `/api/status`, `/api/bootstrap`, `/api/login` publik; `/api/logout` boleh tanpa sesi untuk membersihkan cookie; endpoint lain memerlukan sesi. `/api/owner/*` hanya owner.
 
 | URI | Fungsi |
 |---|---|
-| `GET /`, `/static/app.js`, `/static/style.css` | UI mobile |
-| `GET /api/status`; `POST /api/bootstrap`; `POST /api/login`, `/api/logout`; `GET /api/me`; `POST /api/me/password` | Health/setup/auth dan ganti sandi (`current_password`, `new_password`) |
-| `GET/POST /api/customers?q=...`, `GET/PATCH /api/customers/:id` | Pelanggan & riwayat |
-| `GET/POST /api/visits?date=YYYY-MM-DD`, `PATCH /api/visits/:id/status` | Walk-in/visit |
-| `GET/POST /api/bookings?date=YYYY-MM-DD`, `GET /api/bookings/:id`, `PATCH /api/bookings/:id/status` | Booking |
-| `GET /api/today?date=YYYY-MM-DD` | Hitungan & keuangan terpisah |
-| `GET /api/capsters`, `/api/services`; `POST/PATCH /api/owner/capsters[/:id]`, `/api/owner/services[/:id]` | Katalog |
-| `GET /api/returns?date=YYYY-MM-DD`, `GET /api/returns/:id` | Pola dan due |
-| `POST /api/customers/:id/consent` | Jawaban pelanggan (`status`, `source=customer_explicit`, `notes`) |
-| `POST /api/reminders/prepare`, `POST /api/reminders/:id/handoff` | Siapkan dan buka tautan WhatsApp, tidak mengirim |
-| `POST /api/owner/import/preview`, `/api/owner/import/commit`; `GET /api/owner/import/runs` | CSV (`csv`, opsional `mapping`; commit memerlukan `confirm_file_id` dari preview) |
-| `GET /api/owner/overview`, `/api/owner/audit`; `POST /api/owner/users` | Administrasi |
+| `/`, `/static/app.js`, `/static/style.css`; `GET /api/status` | UI/status |
+| `POST /api/bootstrap`, `/api/login`, `/api/logout`, `/api/me/password`; `GET /api/me` | Akun, sesi, ubah sandi |
+| `GET/POST /api/customers?q=...`, `GET/PATCH /api/customers/:id` | Pelanggan dan riwayat |
+| `GET/POST /api/visits?date=YYYY-MM-DD`, `PATCH /api/visits/:id/status` | Walk-in dan visit |
+| `GET/POST /api/bookings?date=YYYY-MM-DD`, `GET /api/bookings/:id`, `PATCH /api/bookings/:id/status` | Booking multi-orang |
+| `GET /api/today?date=YYYY-MM-DD`, `/api/capsters`, `/api/services` | Today dan katalog |
+| `POST/PATCH /api/owner/capsters[/:id]`, `/api/owner/services[/:id]`; `GET /api/owner/audit` | Admin dan audit |
+| `POST /api/owner/import/preview`, `/api/owner/import/commit`; `GET /api/owner/import/runs` | Impor CSV |
+| `GET /api/returns?date=YYYY-MM-DD`, `GET /api/returns/:id` | Return/due |
+| `POST /api/customers/:id/consent`, `/api/reminders/prepare`, `/api/reminders/:id/handoff` | Persetujuan/pengingat manual |
 
-Untuk create customer/visit/booking, klien mengirim UUID `id` agar retry aman. `booking.people` berisi 1–8 objek `{customer_id?, service_id?, capster_id?}`. Waktu memakai Asia/Jakarta.
+Customer/visit/booking create memakai UUID klien untuk retry aman; waktu aktivitas adalah waktu bisnis Asia/Jakarta.
 
-## Data dan deployment
+## Arsitektur data dan migrasi Phase 5
 
-D1: `business`, `branch`, `app_user`, `session`, `customer`, `customer_consent`, `capster`, `service`, `price_rule`, `visit`, `booking`, `booking_person`, `sync_run`, `transaction_snapshot`, `reminder`, `reminder_event`, `audit_event`. `0003_import_retention.sql` menambah linkage opsional, provenance dan indeks tanpa menghapus data. `wrangler.jsonc` menggunakan UUID D1 produksi khusus; `--local` memakai data terpisah. Rahasia hanya di Cloudflare Pages secrets.
+D1 adalah **satu-satunya database produksi aktif**. Neon PostgreSQL adalah target yang telah dimigrasi dari snapshot D1 privat, bukan backend aktif bersamaan. D1 dan migrasi lamanya tidak dihapus. Lihat `docs/10_BOSKU_COMPLETION_CHECKLIST_AND_DECISION_REGISTER.md` untuk pemetaan, jumlah data dan gate cutover.
 
-Lokal: Node.js 22+, `npm install`, `npm run db:migrate:local`, `npm test && npm run typecheck && npm run build`, lalu `pm2 start ecosystem.config.cjs` dan buka http://localhost:3000. Produksi: migrasi dengan `npx wrangler d1 migrations apply bosku-one-system-db --remote`, build, dan CF BYOK `npx wrangler pages deploy dist --project-name bosku-one-system`; jangan deploy tanpa binding D1 benar.
+- `database/migrations/0001_initial.sql`: 17 tabel operasional yang memetakan nama/kolom D1 (`business`, `branch`, `app_user`, `session`, `customer`, `visit`, `booking`, `booking_person`, `service`, `capster`, `price_rule`, `customer_consent`, `sync_run`, `transaction_snapshot`, `reminder`, `reminder_event`, `audit_event`). Waktu lokal tetap TEXT ISO untuk salin-lossless dan kompatibilitas API lama.
+- `0002_growth.sql`: sumber akuisisi eksplisit `customer_source`, program/kredit/hadiah loyalitas `loyalty_program`, `loyalty_credit`, `loyalty_reward`, dan view analitik yang hanya membaca transaksi impor; bukan data/izin pelanggan yang diisi otomatis.
+- `0003_source_history.sql`: simpan 3 catatan sejarah migrasi D1 secara terpisah. `0004_consent_order.sql`: penanda urutan consent untuk kesetaraan SQLite `rowid`.
+- `database/apply.py` memakai ledger versi/checksum + transaksi; `database/migrate_d1.py` memverifikasi D1 export dan kesetaraan setiap kolom sebelum mengubah target, menolak konflik, lalu menulis satu transaksi PostgreSQL. `database/verify.py` menguji FK/unique/check/CRUD/loyalty/analitik dan me-*rollback* semua data uji.
+- `src/neon-db.ts` adalah adapter HTTP Neon untuk pengujian Hono pra-cutover; **belum diaktifkan/diikat sebagai secret produksi**. Tidak ada dual-write atau sinkronisasi D1/Neon. Sebelum cutover, verifikasi kembali seluruh query, snapshot delta, dan buat rencana rollback berbasis D1.
+- Tidak ada seed harga/katalog atau riwayat transaksi fiktif; ketiadaan transaksi/loyalitas/acquisition dilaporkan `INSUFFICIENT_DATA`. Tabel contoh bawaan Neon `playing_with_neon` (50 baris, tidak terkait Bosku) tidak disentuh.
 
-## Pending / batasan
+**Rahasia:** berikan `DATABASE_URL` hanya lewat secret/environment, jangan melalui git/chat. Jangan menjalankan migrasi memakai kredensial yang sudah terekspos untuk cutover; rotasi dulu. Kode dan dokumentasi tidak mengandung URL/password. Script Python admin membutuhkan `psycopg[binary]`, bukan dependency Worker. Jangan menjalankan file ekspor dari dalam repo; simpan di lokasi privat di luar workspace.
 
-- Gunakan data nyata yang telah diotorisasi untuk menguji commit impor Kasir Pro, tiga kunjungan pada hari berbeda, due candidate dan pesan manual hanya setelah consent pelanggan sungguhan. Tanpa bukti itu, produksi terautentikasi sudah dapat digunakan tetapi gate Phase 4 belum PASS.
-- Validasi ekspor Kasir Pro nyata; Excel/XLSX, pemetaan semua kolom dan rekonsiliasi/manual identity review. API Kasir Pro resmi belum diverifikasi/diimplementasikan.
-- Daftar riwayat event pengingat di UI, konfigurasi template, offline write queue, BI penuh, baseline retensi, pengujian pilot 7–14 hari. Jangan mengklaim ROI/retention lift sebelum ada bukti.
+## Pengembangan dan deployment
 
-Lihat `docs/10_BOSKU_COMPLETION_CHECKLIST_AND_DECISION_REGISTER.md` untuk checklist dan batasan saat ini.
+Node.js 22+, `npm install`, `npm run db:migrate:local`, `npm test && npm run typecheck && npm run build`, lalu `pm2 start ecosystem.config.cjs` dan buka http://localhost:3000. Untuk skema target Neon, jalankan script `database/apply.py`, lalu `database/migrate_d1.py` terhadap ekspor privat, lalu `database/verify.py` hanya dengan URL yang diberikan aman melalui environment. **Jangan menyalakan adapter Neon di Pages sekarang.** Saat cutover disetujui, gunakan CF BYOK Deploy setelah seluruh tes dan smoke staging lulus; `wrangler.jsonc` dan D1 produksi tetap dipertahankan sampai rollback tidak diperlukan.
+
+## Batasan / langkah berikutnya
+
+- Export D1 terbaru, deteksi perubahan sejak snapshot, cocokkan record-by-record, rotasi password Neon, dan siapkan staging Pages/secret yang tidak mengalihkan produksi. Cutover memerlukan persetujuan eksplisit dan smoke produksi setelahnya.
+- Verifikasi impor CSV Kasir Pro asli, riwayat return cukup dan reminder berbasis consent sungguhan; jangan mengklaim pertumbuhan tanpa bukti.
+- Excel/mapping ekspor penuh, offline queue, UI riwayat reminder, BI lanjut dan pilot 7–14 hari masih terbuka.

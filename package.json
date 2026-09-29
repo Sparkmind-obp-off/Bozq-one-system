@@ -7,9 +7,15 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply bosku-one-system-db --local",
+    "db:pg:migrate": "python3 database/apply.py",
+    "db:pg:copy": "python3 database/migrate_d1.py",
+    "db:pg:verify": "python3 database/verify.py",
     "dev:sandbox": "wrangler pages dev dist --local --ip 0.0.0.0 --port 3000"
   },
-  "dependencies": { "hono": "^4.9.0" },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "hono": "^4.9.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260925.1",
     "@hono/vite-cloudflare-pages": "^0.4.2",
