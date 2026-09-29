@@ -49,6 +49,11 @@ test('owner API requires authentication and rejects capster server-side', async 
   assert.equal(capster.status, 403)
   const owner = await app.request('http://localhost/api/owner/audit', { headers: { Cookie: `bosku_session=${newSessionToken()}` } }, { DB: mockDB('owner') })
   assert.equal(owner.status, 200)
+  const probeGuest = await app.request('http://localhost/api/owner/database-target', {}, { DB: mockDB('owner') })
+  assert.equal(probeGuest.status, 401)
+  const probeOwner = await app.request('http://localhost/api/owner/database-target', { headers: { Cookie: `bosku_session=${newSessionToken()}` } }, { DB: mockDB('owner') })
+  assert.equal(probeOwner.status, 200)
+  assert.equal((await probeOwner.json() as { engine: string }).engine, 'd1')
 })
 
 test('database selector defaults to D1 and rejects missing Neon secret or invalid selector', async () => {

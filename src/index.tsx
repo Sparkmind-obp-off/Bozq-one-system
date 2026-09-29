@@ -174,6 +174,15 @@ app.post('/api/me/password', async c => {
   return c.json({ ok: true, note: 'Sandi diganti. Masuk lagi.' })
 })
 
+app.get('/api/owner/database-target', async c => {
+  if (c.env.DB_PRIMARY === 'neon') {
+    const row = await c.env.DB.prepare("SELECT current_setting('server_version_num') AS version").first<{ version: string }>()
+    return c.json({ engine: 'neon', verified: Number(row?.version) > 0 })
+  }
+  const row = await c.env.DB.prepare('SELECT count(*) AS total FROM business').first<{ total: number }>()
+  return c.json({ engine: 'd1', verified: row !== null })
+})
+
 app.get('/api/owner/overview', async c => {
   const counts = await c.env.DB.prepare('SELECT (SELECT count(*) FROM customer) AS customers, (SELECT count(*) FROM visit) AS visits, (SELECT count(*) FROM booking) AS bookings, (SELECT count(*) FROM transaction_snapshot) AS transactions').first()
   return c.json({ counts, note: 'Aktual hanya berasal dari snapshot impor CSV Kasir Pro; kunjungan dan booking bukan pembayaran.' })
