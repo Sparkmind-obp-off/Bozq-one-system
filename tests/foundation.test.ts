@@ -51,6 +51,16 @@ test('owner API requires authentication and rejects capster server-side', async 
   assert.equal(owner.status, 200)
 })
 
+test('database selector defaults to D1 and rejects missing Neon secret or invalid selector', async () => {
+  const url = 'https://bosku-one-system.pages.dev/api/me'
+  assert.equal((await app.request(url, {}, { DB: mockDB('owner') })).status, 401)
+  const blocked = { prepare() { throw new Error('D1 must not be queried') } } as unknown as D1Database
+  const missing = await app.request(url, {}, { DB: blocked, DB_PRIMARY: 'neon' })
+  assert.equal(missing.status, 503)
+  const invalid = await app.request(url, {}, { DB: blocked, DB_PRIMARY: 'invalid' as 'd1' })
+  assert.equal(invalid.status, 503)
+})
+
 test('writes from another origin or without origin are rejected', async () => {
   const cross = await app.request('http://localhost/api/logout', { method: 'POST', headers: { Origin: 'https://attacker.test', 'Content-Type': 'application/json' }, body: '{}' }, { DB: mockDB('owner') })
   assert.equal(cross.status, 403)

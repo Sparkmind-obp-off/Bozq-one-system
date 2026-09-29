@@ -2,11 +2,12 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import operations from './routes'
 import phase3 from './phase3'
+import { neonD1Adapter } from './neon-db'
 import { InputError } from './operations'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { can, digest, hashPassword, newSessionToken, verifyPassword, type Role } from './security'
 
-export type Bindings = { DB: D1Database; BOOTSTRAP_TOKEN?: string }
+export type Bindings = { DB: D1Database; BOOTSTRAP_TOKEN?: string; NEON_DATABASE_URL?: string; DB_PRIMARY?: 'd1' | 'neon' }
 export type Principal = { id: string; display_name: string; role: Role; business_id: string }
 export type Variables = { principal: Principal }
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
@@ -18,6 +19,18 @@ app.onError((error, c) => {
   if (error instanceof InputError) return c.json({ error: error.message }, 400)
   console.error('Request failed:', error instanceof Error ? error.name : 'Unknown error')
   return c.json({ error: 'Layanan belum tersedia. Coba lagi nanti.' }, 500)
+})
+
+app.use('/api/*', async (c, next) => {
+  // Fail closed on missing/invalid cutover configuration; never dual-write.
+  // Replace only this request's env object, not the shared Cloudflare bindings.
+  const selected = c.env.DB_PRIMARY ?? 'd1'
+  if (selected !== 'd1' && selected !== 'neon') return c.json({ error: 'Konfigurasi database tidak valid.' }, 503)
+  if (selected === 'neon') {
+    if (!c.env.NEON_DATABASE_URL) return c.json({ error: 'Database belum tersedia.' }, 503)
+    c.env = { ...c.env, DB: neonD1Adapter(c.env.NEON_DATABASE_URL) }
+  }
+  await next()
 })
 
 app.use('/api/*', async (c, next) => {
